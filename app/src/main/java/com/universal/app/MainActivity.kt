@@ -15,6 +15,7 @@ import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -79,8 +80,10 @@ class MainActivity : Activity() {
         settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
         settings.useWideViewPort = true
         settings.loadWithOverviewMode = true
-        settings.setSupportMultipleWindows(true)
-        settings.javaScriptCanOpenWindowsAutomatically = true
+        
+        // Keep multi-window false to prevent new windows/popups from spawning
+        settings.setSupportMultipleWindows(false)
+        settings.javaScriptCanOpenWindowsAutomatically = false
 
         // Enable cookies for stream players
         val cookieManager = CookieManager.getInstance()
@@ -96,17 +99,23 @@ class MainActivity : Activity() {
                 webView.visibility = View.VISIBLE
             }
 
-            // Ensure links stay inside the app or iframe properly
-            override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
-                if (url != null && (url.startsWith("http://") || url.startsWith("https://"))) {
-                    // Let the webview load the stream provider links naturally
-                    return false
+            // Block external navigation attempts trying to escape the provider frame
+            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                val url = request?.url?.toString() ?: return false
+                // Allow standard http/https inside the view, block intent/market/ad schemes
+                if (url.startsWith("http://") || url.startsWith("https://")) {
+                    return false 
                 }
-                return super.shouldOverrideUrlLoading(view, url)
+                return true // Block rogue deep links or ad redirections
             }
         }
 
         webView.webChromeClient = object : WebChromeClient() {
+            // Aggressively kill any attempt by ads to spawn a new window/popup tab
+            override fun onCreateWindow(view: WebView?, isDialog: Boolean, isUserGesture: Boolean, resultMsg: android.os.Message?): Boolean {
+                return false
+            }
+
             override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
                 if (customView != null) {
                     callback?.onCustomViewHidden()
@@ -133,7 +142,6 @@ class MainActivity : Activity() {
     inner class WebAppInterface {
         @JavascriptInterface
         fun triggerGitHubUpdate() {
-            // Disabled update button function per your request
             runOnUiThread {
                 Toast.makeText(this@MainActivity, "Updates disabled", Toast.LENGTH_SHORT).show()
             }
