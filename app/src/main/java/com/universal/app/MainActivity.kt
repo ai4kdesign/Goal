@@ -23,7 +23,14 @@ import android.widget.FrameLayout
 import android.widget.ProgressBar
 import android.widget.Toast
 import androidx.core.content.FileProvider
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
 
 class MainActivity : Activity() {
 
@@ -33,6 +40,8 @@ class MainActivity : Activity() {
     private lateinit var loadingSpinner: ProgressBar
     private var customView: View? = null
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
+
+    private val GITHUB_REPO_API = "https://api.github.com/repos/dspirovski-design/Goal/releases/latest"
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -81,11 +90,9 @@ class MainActivity : Activity() {
         settings.useWideViewPort = true
         settings.loadWithOverviewMode = true
         
-        // Keep multi-window false to prevent new windows/popups from spawning
         settings.setSupportMultipleWindows(false)
         settings.javaScriptCanOpenWindowsAutomatically = false
 
-        // Enable cookies for stream players
         val cookieManager = CookieManager.getInstance()
         cookieManager.setAcceptCookie(true)
         cookieManager.setAcceptThirdPartyCookies(webView, true)
@@ -99,19 +106,16 @@ class MainActivity : Activity() {
                 webView.visibility = View.VISIBLE
             }
 
-            // Block external navigation attempts trying to escape the provider frame
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                 val url = request?.url?.toString() ?: return false
-                // Allow standard http/https inside the view, block intent/market/ad schemes
                 if (url.startsWith("http://") || url.startsWith("https://")) {
                     return false 
                 }
-                return true // Block rogue deep links or ad redirections
+                return true
             }
         }
 
         webView.webChromeClient = object : WebChromeClient() {
-            // Aggressively kill any attempt by ads to spawn a new window/popup tab
             override fun onCreateWindow(view: WebView?, isDialog: Boolean, isUserGesture: Boolean, resultMsg: android.os.Message?): Boolean {
                 return false
             }
@@ -142,10 +146,114 @@ class MainActivity : Activity() {
     inner class WebAppInterface {
         @JavascriptInterface
         fun triggerGitHubUpdate() {
-            runOnUiThread {
-                Toast.makeText(this@MainActivity, "Updates disabled", Toast.LENGTH_SHORT).show()
+            checkForGitHubRelease()
+        }
+    }
+
+    private fun checkForGitHubRelease() {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                updateWebViewButton("Checking...")
+                val url = URL(GITHUB_REPO_API)
+                val connection = url.openConnection() as HttpURLConnection
+                connection.requestMethod = "GET"
+                connection.setRequestProperty("User-Agent", "Android-Updater")
+                connection.connectTimeout = 10000
+                connection.readTimeout = 10000
+
+                if (connection.responseCode == 200) {
+                    val response = connection.inputStream.bufferedReader().use { it.readText() }
+                    val json = JSONObject(response)
+                    val assets = json.getJSONArray("assets")
+                    
+                    var downloadUrl = ""
+                    for (i in 0 until assets.length()) {
+                        val asset = assets.getJSONObject(i)
+                        if (asset.getString("name").endsWith(".apk")) {
+                            downloadUrl = asset.getString("browser_download_url")
+                            break
+                        }
+                    }
+
+                    if (downloadUrl.isNotEmpty()) {
+                        downloadAndInstallApk(downloadUrl)
+                    } else {
+                        updateWebViewButton("No APK Found")
+                        showToast("Release found, but no .apk asset attached.")
+                    }
+                } else {
+                    updateWebViewButton("Check Failed")
+                    showToast("Could not reach GitHub release API.")
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                updateWebViewButton("Error")
+                showToast("Update check error: ${e.localizedMessage}")
             }
         }
+    }
+
+    private suspend fun downloadAndInstallApk(fileUrl: String) {
+        withContext(Dispatchers.IO) {
+            try {
+                updateWebViewButton("Downloading...")
+                
+                val dir = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+                val oldFile = File(dir, "update.apk")
+                if (oldFile.exists()) oldFile.delete()
+
+                val url = URL(fileUrl)
+                val connection = url.openConnection() as HttpURLConnection
+                connection.requestMethod = "GET"
+                connection.instanceFollowRedirects = true
+                connection.connectTimeout = 15000
+                connection.readTimeout = 30000
+                connection.connect()
+
+                val file = File(dir, "update.apk")
+                connection.inputStream.use { input ->
+                    file.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+
+                withContext(Dispatchers.Main) {
+                    updateWebViewButton("Ready to Install")
+                    showToast("Download complete. Launching installer...")
+                    triggerInstall(file)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                updateWebViewButton("Download Error")
+                showToast("Download failed: ${e.localizedMessage}")
+            }
+        }
+    }
+
+    private suspend fun updateWebViewButton(status: String) {
+        withContext(Dispatchers.Main) {
+            webView.evaluateJavascript("setUpdateStatus('$status');", null)
+        }
+    }
+
+    private suspend fun showToast(message: String) {
+        withContext(Dispatchers.Main) {
+            Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun triggerInstall(file: File) {
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            val uri: Uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                FileProvider.getUriForFile(this@MainActivity, "${packageName}.fileprovider", file)
+            } else {
+                Uri.fromFile(file)
+            }
+            setDataAndType(uri, "application/vnd.android.package-archive")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        startActivity(intent)
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
