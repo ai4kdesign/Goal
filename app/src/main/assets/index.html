@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IceStream Hub</title>
+    <style>
+        body {
+            background-color: #0B0F19;
+            color: #F8FAFC;
+            font-family: system-ui, -apple-system, sans-serif;
+            margin: 0;
+            padding: 12px;
+        }
+        h2 {
+            font-size: 20px;
+            margin-bottom: 12px;
+            color: #38BDF8;
+            border-bottom: 2px solid #1E293B;
+            padding-bottom: 8px;
+        }
+        .card {
+            background: #111827;
+            border: 1px solid #1E293B;
+            border-radius: 12px;
+            padding: 14px;
+            margin-bottom: 10px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
+        }
+        .match-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 13px;
+            color: #94A3B8;
+            margin-bottom: 8px;
+            font-weight: 600;
+        }
+        .teams {
+            font-size: 16px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #F1F5F9;
+        }
+        .btn {
+            background: #2563EB;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 8px 14px;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            width: 100%;
+            text-align: center;
+        }
+        .btn:active {
+            background: #1D4ED8;
+        }
+        #player-view {
+            display: none;
+            margin-top: 15px;
+        }
+        iframe {
+            width: 1000px;
+            min-height: 280px;
+            border: 2px solid #334155;
+            border-radius: 10px;
+            background: #000;
+        }
+    </style>
+</head>
+<body>
+
+    <h2>Live Games Dashboard</h2>
+    
+    <div id="games-container">
+        <!-- Clean Match Card Example -->
+        <div class="card">
+            <div class="match-header">
+                <span>KHL • 14:00</span>
+                <span style="color: #38BDF8;">Live</span>
+            </div>
+            <div class="teams">Salavat Yulaev vs Sochi</div>
+            <button class="btn" onclick="playStream('https://onhockey.tv/')">▶ Watch Stream 1</button>
+        </div>
+
+        <div class="card">
+            <div class="match-header">
+                <span>KHL • 15:00</span>
+                <span>Upcoming</span>
+            </div>
+            <div class="teams">Lada Togliatti vs Admiral</div>
+            <button class="btn" onclick="playStream('https://onhockey.tv/')">▶ Watch Stream 1</button>
+        </div>
+    </div>
+
+    <div id="player-view">
+        <h3 id="now-playing" style="font-size:15px; color:#38BDF8;"></h3>
+        <iframe id="stream-frame" src=""></iframe>
+        <button class="btn" style="background:#475569; margin-top:8px;" onclick="closePlayer()">← Back to Games</button>
+    </div>
+
+    <script>
+        function playStream(url) {
+            document.getElementById('games-container').style.display = 'none';
+            var player = document.getElementById('player-view');
+            player.style.display = 'block';
+            document.getElementById('stream-frame').src = url;
+            document.getElementById('now-playing').innerText = "Streaming Match...";
+        }
+
+        function closePlayer() {
+            document.getElementById('stream-frame').src = "";
+            document.getElementById('player-view').style.display = 'none';
+            document.getElementById('games-container').style.display = 'block';
+        }
+    </script>
+
+</body>
+</html>
