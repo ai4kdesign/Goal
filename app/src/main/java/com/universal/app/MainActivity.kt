@@ -40,7 +40,7 @@ class MainActivity : Activity() {
 
     // CHANGE THIS to your actual GitHub username and repository name
     private val GITHUB_REPO_API = "https://api.github.com/repos/dspirovski-design/Goal/releases/latest"
-    private val CURRENT_VERSION = "1.0"
+    private val CURRENT_VERSION = "1.1
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
