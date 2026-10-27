@@ -89,7 +89,7 @@
 
     <div class="header-bar">
         <h2>Live Games Dashboard</h2>
-        <button class="update-btn" id="update-status-btn" onclick="checkForUpdates()">🔄 Check Updates</button>
+        <button class="update-btn" id="update-status-btn" onclick="startUpdate()">🔄 Check Updates</button>
     </div>
     
     <div id="games-container">
@@ -110,15 +110,11 @@
     </div>
 
     <script>
-        function checkForUpdates() {
+        function startUpdate() {
             var btn = document.getElementById('update-status-btn');
-            btn.innerText = "Checking...";
-            // Tells the Kotlin app to trigger update check
+            btn.innerText = "Downloading...";
             if (window.AndroidBridge) {
-                window.AndroidBridge.triggerUpdateCheck();
-            } else {
-                // Fallback for testing in a regular browser
-                setTimeout(() => { btn.innerText = "Up to date!"; }, 1500);
+                window.AndroidBridge.triggerDirectUpdate();
             }
         }
 
