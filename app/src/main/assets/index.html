@@ -21,7 +21,7 @@
             margin-bottom: 12px;
         }
         h2 {
-            font-size: 20px;
+            font-size: 18px;
             color: #38BDF8;
             margin: 0;
         }
@@ -31,34 +31,66 @@
             border: 1px solid #475569;
             border-radius: 6px;
             padding: 6px 10px;
-            font-size: 12px;
+            font-size: 11px;
             font-weight: 600;
             cursor: pointer;
         }
-        .update-btn:active {
-            background: #475569;
-            color: white;
+        .portal-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 15px;
         }
-        .card {
+        .portal-card {
+            background: #1E293B;
+            border: 1px solid #334155;
+            border-radius: 10px;
+            padding: 12px;
+            text-align: center;
+            cursor: pointer;
+        }
+        .portal-card:active {
+            background: #2563EB;
+        }
+        .portal-title {
+            font-weight: bold;
+            font-size: 14px;
+            color: #F8FAFC;
+        }
+        .section-title {
+            font-size: 14px;
+            color: #94A3B8;
+            margin: 15px 0 8px 0;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .game-card {
             background: #111827;
             border: 1px solid #1E293B;
             border-radius: 12px;
-            padding: 14px;
+            padding: 12px;
             margin-bottom: 10px;
         }
-        .match-header {
+        .game-header {
             display: flex;
             justify-content: space-between;
-            font-size: 13px;
+            font-size: 12px;
             color: #94A3B8;
             margin-bottom: 8px;
             font-weight: 600;
         }
-        .teams {
-            font-size: 16px;
+        .team-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 15px;
             font-weight: bold;
-            margin-bottom: 10px;
             color: #F1F5F9;
+            margin: 4px 0;
+        }
+        .score {
+            font-size: 16px;
+            color: #38BDF8;
         }
         .btn {
             background: #2563EB;
@@ -67,18 +99,18 @@
             border-radius: 8px;
             padding: 8px 14px;
             font-weight: 600;
-            font-size: 14px;
+            font-size: 13px;
             cursor: pointer;
             width: 100%;
             text-align: center;
+            margin-top: 8px;
         }
-        #player-view {
+        #provider-view {
             display: none;
-            margin-top: 15px;
         }
         iframe {
             width: 100%;
-            min-height: 280px;
+            min-height: 350px;
             border: 2px solid #334155;
             border-radius: 10px;
             background: #000;
@@ -88,33 +120,102 @@
 <body>
 
     <div class="header-bar">
-        <h2>Live Games Dashboard</h2>
-        <button class="update-btn" id="update-status-btn" onclick="startUpdate()">🔄 Check Updates</button>
+        <h2>🏒 IceStream Hub</h2>
+        <button class="update-btn" id="update-status-btn" onclick="triggerUpdate()">🔄 Check Updates</button>
     </div>
-    
-    <div id="games-container">
-        <div class="card">
-            <div class="match-header">
-                <span>KHL • 14:00</span>
-                <span style="color: #38BDF8;">Live</span>
+
+    <!-- Portal Home View -->
+    <div id="home-view">
+        <div class="section-title">Select Provider Portal</div>
+        <div class="portal-grid">
+            <div class="portal-card" onclick="openProvider('https://onhockey.tv/')">
+                <div class="portal-title">OnHockey</div>
             </div>
-            <div class="teams">Salavat Yulaev vs Sochi</div>
-            <button class="btn" onclick="playStream('https://onhockey.tv/')">▶ Watch Stream 1</button>
+            <div class="portal-card" onclick="openProvider('https://nhlstreams.io/')">
+                <div class="portal-title">NHLStreams.io</div>
+            </div>
+        </div>
+
+        <div class="section-title">Today's Live NHL Scores</div>
+        <div id="nhl-scoreboard">
+            <div style="color: #64748B; font-size: 13px; text-align:center; padding: 20px;">Loading live games...</div>
         </div>
     </div>
 
-    <div id="player-view">
-        <h3 id="now-playing" style="font-size:15px; color:#38BDF8;"></h3>
-        <iframe id="stream-frame" src=""></iframe>
-        <button class="btn" style="background:#475569; margin-top:8px;" onclick="closePlayer()">← Back to Games</button>
+    <!-- Active Stream Provider View -->
+    <div id="provider-view">
+        <button class="btn" style="background:#475569; margin-bottom:10px;" onclick="closeProvider()">← Back to Hub Home</button>
+        <iframe id="provider-frame" src=""></iframe>
     </div>
 
     <script>
-        function startUpdate() {
+        // Fetch Live NHL Scores from Official API
+        async function loadNhlScores() {
+            try {
+                let response = await fetch('https://api-web.nhle.com/v1/score/now');
+                let data = await response.json();
+                let container = document.getElementById('nhl-scoreboard');
+                container.innerHTML = '';
+
+                let games = data.games || [];
+                if (games.length === 0) {
+                    container.innerHTML = '<div style="color: #64748B; font-size: 13px; text-align:center; padding: 20px;">No NHL games scheduled for today.</div>';
+                    return;
+                }
+
+                games.forEach(game => {
+                    let homeTeam = game.homeTeam.commonName.default;
+                    let awayTeam = game.awayTeam.commonName.default;
+                    let homeScore = game.homeTeam.score ?? '-';
+                    let awayScore = game.awayTeam.score ?? '-';
+                    let gameState = game.gameState; // PRE, LIVE, FINAL
+
+                    let stateText = "Upcoming";
+                    if (gameState === "LIVE") stateText = "LIVE ● " + (game.periodDescriptor ? game.periodDescriptor.periodType : "");
+                    if (gameState === "FINAL") stateText = "Final";
+
+                    let card = document.createElement('div');
+                    card.className = 'game-card';
+                    card.innerHTML = `
+                        <div class="game-header">
+                            <span>NHL</span>
+                            <span style="color: ${gameState === 'LIVE' ? '#38BDF8' : '#94A3B8'};">${stateText}</span>
+                        </div>
+                        <div class="team-row">
+                            <span>${awayTeam}</span>
+                            <span class="score">${awayScore}</span>
+                        </div>
+                        <div class="team-row">
+                            <span>${homeTeam}</span>
+                            <span class="score">${homeScore}</span>
+                        </div>
+                        <button class="btn" onclick="openProvider('https://onhockey.tv/')">▶ Watch Stream</button>
+                    `;
+                    container.appendChild(card);
+                });
+            } catch (e) {
+                document.getElementById('nhl-scoreboard').innerHTML = '<div style="color: #EF4444; font-size: 13px; text-align:center; padding: 10px;">Failed to load live scores</div>';
+            }
+        }
+
+        function openProvider(url) {
+            document.getElementById('home-view').style.display = 'none';
+            var prov = document.getElementById('provider-view');
+            prov.style.display = 'block';
+            document.getElementById('provider-frame').src = url;
+        }
+
+        function closeProvider() {
+            document.getElementById('provider-frame').src = "";
+            document.getElementById('provider-view').style.display = 'none';
+            document.getElementById('home-view').style.display = 'block';
+        }
+
+        function triggerUpdate() {
             var btn = document.getElementById('update-status-btn');
-            btn.innerText = "Downloading...";
+            btn.innerText = "Checking...";
             if (window.AndroidBridge) {
-                window.AndroidBridge.triggerDirectUpdate();
+                window.AndroidBridge.triggerGitHubUpdate();
             }
         }
 
@@ -122,19 +223,10 @@
             document.getElementById('update-status-btn').innerText = statusText;
         }
 
-        function playStream(url) {
-            document.getElementById('games-container').style.display = 'none';
-            var player = document.getElementById('player-view');
-            player.style.display = 'block';
-            document.getElementById('stream-frame').src = url;
-            document.getElementById('now-playing').innerText = "Streaming Match...";
-        }
-
-        function closePlayer() {
-            document.getElementById('stream-frame').src = "";
-            document.getElementById('player-view').style.display = 'none';
-            document.getElementById('games-container').style.display = 'block';
-        }
+        // Load scores on start
+        loadNhlScores();
+        // Refresh scores every 60 seconds
+        setInterval(loadNhlScores, 60000);
     </script>
 
 </body>
