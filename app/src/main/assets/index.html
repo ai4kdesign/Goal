@@ -84,7 +84,6 @@
         font-weight: bold;
     }
 
-    /* NHL.com-style scoreboard */
     .scoreboard-strip {
         display: flex;
         flex-direction: column;
@@ -210,16 +209,22 @@
         margin-top: 10px;
         display: flex;
         justify-content: flex-end;
+        gap: 8px;
     }
     .watch-btn {
         background: #2563EB;
         color: white;
         border: 2px solid transparent;
         border-radius: 10px;
-        padding: 9px 16px;
+        padding: 8px 13px;
         font-weight: bold;
-        font-size: 14px;
+        font-size: 13px;
         cursor: pointer;
+    }
+    .watch-btn.secondary {
+        background: #1E293B;
+        border-color: #334155;
+        color: #38BDF8;
     }
     .watch-btn:hover { background: #1D4ED8; }
 
@@ -246,19 +251,19 @@
 </div>
 
 <div id="home-view">
-    <div class="section-title">Select Provider Portal</div>
-    <div class="portal-grid">
-        <div class="portal-card" tabindex="0" onclick="openProvider('https://onhockey.tv/')">
-            <div class="portal-title">OnHockey</div>
-        </div>
-        <div class="portal-card" tabindex="0" onclick="openProvider('https://nhlstreams.io/')">
-            <div class="portal-title">NHLStreams.io</div>
-        </div>
-    </div>
-
     <div class="section-title">Today's Live NHL Scores</div>
     <div id="nhl-scoreboard">
         <div class="scoreboard-empty">Loading live games...</div>
+    </div>
+
+    <div class="section-title">Direct Provider Portals</div>
+    <div class="portal-grid">
+        <div class="portal-card" tabindex="0" onclick="watchGame('https://nhlstreams.io/', '', '')">
+            <div class="portal-title">NHLStreams.io</div>
+        </div>
+        <div class="portal-card" tabindex="0" onclick="watchGame('https://onhockey.tv/', '', '')">
+            <div class="portal-title">OnHockey</div>
+        </div>
     </div>
 </div>
 
@@ -310,6 +315,9 @@
                 let awayLeads = homeScoreRaw != null && awayScoreRaw != null && awayScoreRaw > homeScoreRaw;
                 let showScoreEmphasis = isLive || isFinal;
 
+                let safeAway = awayTeam.replace(/'/g, "\\'");
+                let safeHome = homeTeam.replace(/'/g, "\\'");
+
                 let card = document.createElement('div');
                 card.className = 'game-card' + (isLive ? ' is-live' : '');
                 card.innerHTML = `
@@ -333,7 +341,8 @@
                         </div>
                     </div>
                     <div class="game-footer">
-                        <button class="watch-btn" tabindex="0" onclick="openProvider('https://onhockey.tv/')">▶ Watch Stream</button>
+                        <button class="watch-btn secondary" tabindex="0" onclick="watchGame('https://onhockey.tv/', '${safeAway}', '${safeHome}')">▶ OnHockey</button>
+                        <button class="watch-btn" tabindex="0" onclick="watchGame('https://nhlstreams.io/', '${safeAway}', '${safeHome}')">▶ NHLStreams</button>
                     </div>
                 `;
                 strip.appendChild(card);
@@ -345,8 +354,12 @@
         }
     }
 
-    function openProvider(url) {
-        window.location.href = url;
+    function watchGame(providerUrl, awayTeam, homeTeam) {
+        if (window.AndroidBridge && window.AndroidBridge.openGameStream) {
+            window.AndroidBridge.openGameStream(providerUrl, awayTeam || '', homeTeam || '');
+        } else {
+            window.location.href = providerUrl;
+        }
     }
 
     function triggerUpdate() {
