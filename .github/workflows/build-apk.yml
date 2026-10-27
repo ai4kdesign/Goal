@@ -22,6 +22,7 @@ jobs:
     - name: Build Debug APK with Gradle
       uses: gradle/actions/setup-gradle@v3
       with:
+        gradle-version: '8.5'
         arguments: assembleDebug
 
     - name: Upload APK Artifact
