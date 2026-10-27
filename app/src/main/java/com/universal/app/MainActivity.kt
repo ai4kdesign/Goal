@@ -12,6 +12,7 @@ import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
+import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
@@ -37,8 +38,9 @@ class MainActivity : Activity() {
     private var customView: View? = null
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
 
+    // Make sure your repo is set to Public on GitHub so this API is reachable!
     private val GITHUB_REPO_API = "https://api.github.com/repos/dspirovski-design/Goal/releases/latest"
-    private val CURRENT_VERSION = "0.9"
+    private val CURRENT_VERSION = "0.9" // Change to match your current testing tag
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -74,76 +76,6 @@ class MainActivity : Activity() {
 
         setupWebView()
         webView.loadUrl("file:///android_asset/index.html")
-
-        checkForUpdates()
-    }
-
-    private fun checkForUpdates() {
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val url = URL(GITHUB_REPO_API)
-                val connection = url.openConnection() as HttpURLConnection
-                connection.requestMethod = "GET"
-                connection.setRequestProperty("User-Agent", "Android-Updater")
-
-                if (connection.responseCode == 200) {
-                    val response = connection.inputStream.bufferedReader().use { it.readText() }
-                    val json = JSONObject(response)
-                    val latestTag = json.getString("tag_name").replace("v", "")
-
-                    if (latestTag != CURRENT_VERSION) {
-                        val assets = json.getJSONArray("assets")
-                        for (i in 0 until assets.length()) {
-                            val asset = assets.getJSONObject(i)
-                            if (asset.getString("name").endsWith(".apk")) {
-                                val downloadUrl = asset.getString("browser_download_url")
-                                downloadAndInstallUpdate(downloadUrl)
-                                break
-                            }
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
-    }
-
-    private suspend fun downloadAndInstallUpdate(apkUrl: String) {
-        withContext(Dispatchers.IO) {
-            try {
-                val url = URL(apkUrl)
-                val connection = url.openConnection() as HttpURLConnection
-                connection.connect()
-
-                val file = File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "update.apk")
-                url.openStream().use { input ->
-                    file.outputStream().use { output ->
-                        input.copyTo(output)
-                    }
-                }
-
-                withContext(Dispatchers.Main) {
-                    triggerInstall(file)
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
-    }
-
-    private fun triggerInstall(file: File) {
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            val uri: Uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                FileProvider.getUriForFile(this@MainActivity, "${packageName}.fileprovider", file)
-            } else {
-                Uri.fromFile(file)
-            }
-            setDataAndType(uri, "application/vnd.android.package-archive")
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        startActivity(intent)
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -156,6 +88,9 @@ class MainActivity : Activity() {
         settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
         settings.useWideViewPort = true
         settings.loadWithOverviewMode = true
+
+        // Register bridge so JavaScript can call native Android update functions
+        webView.addJavascriptInterface(WebAppInterface(), "AndroidBridge")
 
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
@@ -187,6 +122,96 @@ class MainActivity : Activity() {
                 webView.visibility = View.VISIBLE
             }
         }
+    }
+
+    inner class WebAppInterface {
+        @JavascriptInterface
+        fun triggerUpdateCheck() {
+            checkForUpdatesManual()
+        }
+    }
+
+    private fun checkForUpdatesManual() {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                updateWebViewButton("Checking...")
+                val url = URL(GITHUB_REPO_API)
+                val connection = url.openConnection() as HttpURLConnection
+                connection.requestMethod = "GET"
+                connection.setRequestProperty("User-Agent", "Android-Updater")
+
+                if (connection.responseCode == 200) {
+                    val response = connection.inputStream.bufferedReader().use { it.readText() }
+                    val json = JSONObject(response)
+                    val latestTag = json.getString("tag_name").replace("v", "")
+
+                    if (latestTag != CURRENT_VERSION) {
+                        updateWebViewButton("Downloading...")
+                        val assets = json.getJSONArray("assets")
+                        for (i in 0 until assets.length()) {
+                            val asset = assets.getJSONObject(i)
+                            if (asset.getString("name").endsWith(".apk")) {
+                                val downloadUrl = asset.getString("browser_download_url")
+                                downloadAndInstallUpdate(downloadUrl)
+                                break
+                            }
+                        }
+                    } else {
+                        updateWebViewButton("Up to date!")
+                    }
+                } else {
+                    updateWebViewButton("Check Failed")
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                updateWebViewButton("Error")
+            }
+        }
+    }
+
+    private suspend fun updateWebViewButton(status: String) {
+        withContext(Dispatchers.Main) {
+            webView.evaluateJavascript("setUpdateStatus('$status');", null)
+        }
+    }
+
+    private suspend fun downloadAndInstallUpdate(apkUrl: String) {
+        withContext(Dispatchers.IO) {
+            try {
+                val url = URL(apkUrl)
+                val connection = url.openConnection() as HttpURLConnection
+                connection.connect()
+
+                val file = File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "update.apk")
+                url.openStream().use { input ->
+                    file.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+
+                withContext(Dispatchers.Main) {
+                    updateWebViewButton("Install Ready")
+                    triggerInstall(file)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                updateWebViewButton("Download Error")
+            }
+        }
+    }
+
+    private fun triggerInstall(file: File) {
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            val uri: Uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                FileProvider.getUriForFile(this@MainActivity, "${packageName}.fileprovider", file)
+            } else {
+                Uri.fromFile(file)
+            }
+            setDataAndType(uri, "application/vnd.android.package-archive")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        startActivity(intent)
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
