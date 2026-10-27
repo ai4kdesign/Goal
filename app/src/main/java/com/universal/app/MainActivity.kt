@@ -2,7 +2,6 @@ package com.universal.app
 
 import android.annotation.SuppressLint
 import android.app.Activity
-import android.app.AlertDialog
 import android.content.Intent
 import android.graphics.Color
 import android.net.Uri
@@ -38,9 +37,8 @@ class MainActivity : Activity() {
     private var customView: View? = null
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
 
-    // CHANGE THIS to your actual GitHub username and repository name
     private val GITHUB_REPO_API = "https://api.github.com/repos/dspirovski-design/Goal/releases/latest"
-    private val CURRENT_VERSION = "1.1
+    private val CURRENT_VERSION = "1.0"
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -77,7 +75,6 @@ class MainActivity : Activity() {
         setupWebView()
         webView.loadUrl("file:///android_asset/index.html")
 
-        // Check for updates automatically in the background on startup
         checkForUpdates()
     }
 
@@ -95,7 +92,6 @@ class MainActivity : Activity() {
                     val latestTag = json.getString("tag_name").replace("v", "")
 
                     if (latestTag != CURRENT_VERSION) {
-                        // Find the APK asset download URL
                         val assets = json.getJSONArray("assets")
                         for (i in 0 until assets.length()) {
                             val asset = assets.getJSONObject(i)
