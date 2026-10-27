@@ -12,6 +12,7 @@ import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
+import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
@@ -21,14 +22,7 @@ import android.widget.FrameLayout
 import android.widget.ProgressBar
 import android.widget.Toast
 import androidx.core.content.FileProvider
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import org.json.JSONObject
 import java.io.File
-import java.net.HttpURLConnection
-import java.net.URL
 
 class MainActivity : Activity() {
 
@@ -38,10 +32,6 @@ class MainActivity : Activity() {
     private lateinit var loadingSpinner: ProgressBar
     private var customView: View? = null
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
-
-    private val GITHUB_REPO_API = "https://api.github.com/repos/dspirovski-design/Goal/releases/latest"
-    private val GITHUB_TOKEN = "github_pat_YOUR_TOKEN_HERE" // Your private token
-    private val CURRENT_VERSION = "1.0" // Match this with your release tags (e.g. 1.0, 1.1, etc.)
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -89,6 +79,13 @@ class MainActivity : Activity() {
         settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
         settings.useWideViewPort = true
         settings.loadWithOverviewMode = true
+        settings.setSupportMultipleWindows(true)
+        settings.javaScriptCanOpenWindowsAutomatically = true
+
+        // Enable cookies for stream players
+        val cookieManager = CookieManager.getInstance()
+        cookieManager.setAcceptCookie(true)
+        cookieManager.setAcceptThirdPartyCookies(webView, true)
 
         webView.addJavascriptInterface(WebAppInterface(), "AndroidBridge")
 
@@ -97,6 +94,15 @@ class MainActivity : Activity() {
                 super.onPageFinished(view, url)
                 loadingSpinner.visibility = View.GONE
                 webView.visibility = View.VISIBLE
+            }
+
+            // Ensure links stay inside the app or iframe properly
+            override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
+                if (url != null && (url.startsWith("http://") || url.startsWith("https://"))) {
+                    // Let the webview load the stream provider links naturally
+                    return false
+                }
+                return super.shouldOverrideUrlLoading(view, url)
             }
         }
 
@@ -127,128 +133,11 @@ class MainActivity : Activity() {
     inner class WebAppInterface {
         @JavascriptInterface
         fun triggerGitHubUpdate() {
-            checkForPrivateGitHubRelease()
-        }
-    }
-
-    private fun checkForPrivateGitHubRelease() {
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                updateWebViewButton("Checking...")
-                val url = URL(GITHUB_REPO_API)
-                val connection = url.openConnection() as HttpURLConnection
-                connection.requestMethod = "GET"
-                connection.setRequestProperty("User-Agent", "Android-Updater")
-                connection.setRequestProperty("Authorization", "Bearer $GITHUB_TOKEN")
-                connection.connectTimeout = 10000
-                connection.readTimeout = 10000
-
-                if (connection.responseCode == 200) {
-                    val response = connection.inputStream.bufferedReader().use { it.readText() }
-                    val json = JSONObject(response)
-                    val latestTag = json.getString("tag_name").replace("v", "").trim()
-
-                    // Compare versions smartly
-                    if (latestTag == CURRENT_VERSION) {
-                        updateWebViewButton("Up to date!")
-                        showToast("App is already up to date (v$CURRENT_VERSION)")
-                        return@launch
-                    }
-
-                    updateWebViewButton("New v$latestTag found")
-                    val assets = json.getJSONArray("assets")
-                    
-                    var downloadUrl = ""
-                    for (i in 0 until assets.length()) {
-                        val asset = assets.getJSONObject(i)
-                        if (asset.getString("name").endsWith(".apk")) {
-                            downloadUrl = asset.getString("browser_download_url")
-                            break
-                        }
-                    }
-
-                    if (downloadUrl.isNotEmpty()) {
-                        downloadAndInstallPrivateApk(downloadUrl)
-                    } else {
-                        updateWebViewButton("No APK Found")
-                        showToast("Release found, but no .apk asset attached.")
-                    }
-                } else {
-                    updateWebViewButton("Auth Failed")
-                    showToast("GitHub Authentication Failed. Check token.")
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-                updateWebViewButton("Error")
-                showToast("Update check error: ${e.localizedMessage}")
+            // Disabled update button function per your request
+            runOnUiThread {
+                Toast.makeText(this@MainActivity, "Updates disabled", Toast.LENGTH_SHORT).show()
             }
         }
-    }
-
-    private suspend fun downloadAndInstallPrivateApk(fileUrl: String) {
-        withContext(Dispatchers.IO) {
-            try {
-                updateWebViewButton("Downloading...")
-                
-                // Clear out any old cached update files first to prevent storage bloat
-                val dir = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
-                val oldFile = File(dir, "update.apk")
-                if (oldFile.exists()) oldFile.delete()
-
-                val url = URL(fileUrl)
-                val connection = url.openConnection() as HttpURLConnection
-                connection.requestMethod = "GET"
-                connection.setRequestProperty("Authorization", "Bearer $GITHUB_TOKEN")
-                connection.setRequestProperty("Accept", "application/octet-stream")
-                connection.instanceFollowRedirects = true
-                connection.connectTimeout = 15000
-                connection.readTimeout = 30000
-                connection.connect()
-
-                val file = File(dir, "update.apk")
-                connection.inputStream.use { input ->
-                    file.outputStream().use { output ->
-                        input.copyTo(output)
-                    }
-                }
-
-                withContext(Dispatchers.Main) {
-                    updateWebViewButton("Ready to Install")
-                    showToast("Download complete. Launching installer...")
-                    triggerInstall(file)
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-                updateWebViewButton("Download Error")
-                showToast("Download failed: ${e.localizedMessage}")
-            }
-        }
-    }
-
-    private suspend fun updateWebViewButton(status: String) {
-        withContext(Dispatchers.Main) {
-            webView.evaluateJavascript("setUpdateStatus('$status');", null)
-        }
-    }
-
-    private suspend fun showToast(message: String) {
-        withContext(Dispatchers.Main) {
-            Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
-        }
-    }
-
-    private fun triggerInstall(file: File) {
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            val uri: Uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                FileProvider.getUriForFile(this@MainActivity, "${packageName}.fileprovider", file)
-            } else {
-                Uri.fromFile(file)
-            }
-            setDataAndType(uri, "application/vnd.android.package-archive")
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        startActivity(intent)
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
