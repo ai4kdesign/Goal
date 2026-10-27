@@ -38,9 +38,9 @@ class MainActivity : Activity() {
     private var customView: View? = null
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
 
-    // Make sure your repo is set to Public on GitHub so this API is reachable!
     private val GITHUB_REPO_API = "https://api.github.com/repos/dspirovski-design/Goal/releases/latest"
-    private val CURRENT_VERSION = "0.9" // Change to match your current testing tag
+    // PASTE YOUR GITHUB PERSONAL ACCESS TOKEN HERE
+    private val GITHUB_TOKEN = "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"
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -89,7 +89,6 @@ class MainActivity : Activity() {
         settings.useWideViewPort = true
         settings.loadWithOverviewMode = true
 
-        // Register bridge so JavaScript can call native Android update functions
         webView.addJavascriptInterface(WebAppInterface(), "AndroidBridge")
 
         webView.webViewClient = object : WebViewClient() {
@@ -126,12 +125,12 @@ class MainActivity : Activity() {
 
     inner class WebAppInterface {
         @JavascriptInterface
-        fun triggerUpdateCheck() {
-            checkForUpdatesManual()
+        fun triggerGitHubUpdate() {
+            checkForPrivateGitHubRelease()
         }
     }
 
-    private fun checkForUpdatesManual() {
+    private fun checkForPrivateGitHubRelease() {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 updateWebViewButton("Checking...")
@@ -139,28 +138,31 @@ class MainActivity : Activity() {
                 val connection = url.openConnection() as HttpURLConnection
                 connection.requestMethod = "GET"
                 connection.setRequestProperty("User-Agent", "Android-Updater")
+                // Authenticate request so private repo allows access
+                connection.setRequestProperty("Authorization", "Bearer $GITHUB_TOKEN")
 
                 if (connection.responseCode == 200) {
                     val response = connection.inputStream.bufferedReader().use { it.readText() }
                     val json = JSONObject(response)
-                    val latestTag = json.getString("tag_name").replace("v", "")
-
-                    if (latestTag != CURRENT_VERSION) {
-                        updateWebViewButton("Downloading...")
-                        val assets = json.getJSONArray("assets")
-                        for (i in 0 until assets.length()) {
-                            val asset = assets.getJSONObject(i)
-                            if (asset.getString("name").endsWith(".apk")) {
-                                val downloadUrl = asset.getString("browser_download_url")
-                                downloadAndInstallUpdate(downloadUrl)
-                                break
-                            }
+                    val assets = json.getJSONArray("assets")
+                    
+                    var downloadUrl = ""
+                    for (i in 0 until assets.length()) {
+                        val asset = assets.getJSONObject(i)
+                        if (asset.getString("name").endsWith(".apk")) {
+                            // GitHub private asset downloads require the API redirect header or token auth
+                            downloadUrl = asset.getString("url") // Use API asset URL for private repos
+                            break
                         }
+                    }
+
+                    if (downloadUrl.isNotEmpty()) {
+                        downloadAndInstallPrivateApk(downloadUrl)
                     } else {
-                        updateWebViewButton("Up to date!")
+                        updateWebViewButton("No APK Found")
                     }
                 } else {
-                    updateWebViewButton("Check Failed")
+                    updateWebViewButton("Auth Failed")
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -169,34 +171,38 @@ class MainActivity : Activity() {
         }
     }
 
-    private suspend fun updateWebViewButton(status: String) {
-        withContext(Dispatchers.Main) {
-            webView.evaluateJavascript("setUpdateStatus('$status');", null)
-        }
-    }
-
-    private suspend fun downloadAndInstallUpdate(apkUrl: String) {
+    private suspend fun downloadAndInstallPrivateApk(apiUrl: String) {
         withContext(Dispatchers.IO) {
             try {
-                val url = URL(apkUrl)
+                updateWebViewButton("Downloading...")
+                val url = URL(apiUrl)
                 val connection = url.openConnection() as HttpURLConnection
+                connection.setRequestProperty("Authorization", "Bearer $GITHUB_TOKEN")
+                // Tell GitHub to stream the binary file rather than JSON metadata
+                connection.setRequestProperty("Accept", "application/octet-stream")
                 connection.connect()
 
                 val file = File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "update.apk")
-                url.openStream().use { input ->
+                connection.inputStream.use { input ->
                     file.outputStream().use { output ->
                         input.copyTo(output)
                     }
                 }
 
                 withContext(Dispatchers.Main) {
-                    updateWebViewButton("Install Ready")
+                    updateWebViewButton("Ready to Install")
                     triggerInstall(file)
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
                 updateWebViewButton("Download Error")
             }
+        }
+    }
+
+    private suspend fun updateWebViewButton(status: String) {
+        withContext(Dispatchers.Main) {
+            webView.evaluateJavascript("setUpdateStatus('$status');", null)
         }
     }
 
