@@ -59,7 +59,6 @@ class MainActivity : Activity() {
         private const val APP_ORIGIN = "https://$ASSET_HOST"
         private const val START_URL = "$APP_ORIGIN/assets/index.html"
 
-        // Public GitHub Release endpoint (no token needed)
         private const val GITHUB_RELEASE_API =
             "https://api.github.com/repos/dspirovski-design/Goal/releases/latest"
 
@@ -68,10 +67,14 @@ class MainActivity : Activity() {
         private const val KEY_LAST_ASSET_ID = "last_installed_asset_id"
         private const val MAX_APK_BYTES = 200L * 1024 * 1024
 
-        private val AD_HOSTS = listOf(
-            "doubleclick.net", "googlesyndication.com", "adservice.google.com",
-            "popads.net", "popcash.net", "propellerads.com", "adsterra.com",
-            "exoclick.com", "juicyads.com", "clickadu.com", "hilltopads.net"
+        // Broad ad, tracker, and click-hijack domain blocklist
+        private val AD_KEYWORDS = listOf(
+            "doubleclick", "googlesyndication", "adservice", "popads", "popcash",
+            "propellerads", "adsterra", "exoclick", "juicyads", "clickadu",
+            "hilltopads", "aliexpress", "bet365", "1xbet", "stake.com",
+            "casino", "betting", "adnxs", "taboola", "outbrain", "Histats",
+            "acint.net", "ero-advertising", "trafficjunky", "tsyndicate",
+            "realsrv.com", "clksite.com", "onclkds.com", "aftrk", "voluum"
         )
     }
 
@@ -90,6 +93,10 @@ class MainActivity : Activity() {
 
     private var customView: View? = null
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
+
+    // Stores the team names currently selected from the Hub scoreboard
+    private var targetAwayTeam: String = ""
+    private var targetHomeTeam: String = ""
 
     private val scope = MainScope()
     private var updateJob: Job? = null
@@ -110,7 +117,6 @@ class MainActivity : Activity() {
             )
         }
 
-        // Top bar shown automatically whenever viewing a stream provider
         backToHubBar = Button(this).apply {
             text = "← Back to IceStream Hub"
             setTextColor(Color.parseColor("#F8FAFC"))
@@ -120,6 +126,8 @@ class MainActivity : Activity() {
             visibility = View.GONE
             isFocusable = true
             setOnClickListener {
+                targetAwayTeam = ""
+                targetHomeTeam = ""
                 webView.loadUrl(START_URL)
             }
         }
@@ -180,6 +188,11 @@ class MainActivity : Activity() {
         super.onDestroy()
     }
 
+    private fun isAdUrl(url: String): Boolean {
+        val lower = url.lowercase()
+        return AD_KEYWORDS.any { lower.contains(it) }
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupWebView() {
         with(webView.settings) {
@@ -192,7 +205,6 @@ class MainActivity : Activity() {
             allowContentAccess = false
             useWideViewPort = true
             loadWithOverviewMode = true
-            // Enables onCreateWindow interception to kill target="_blank" popup ads
             setSupportMultipleWindows(true)
             javaScriptCanOpenWindowsAutomatically = false
         }
@@ -210,9 +222,9 @@ class MainActivity : Activity() {
                 request: WebResourceRequest
             ): WebResourceResponse? {
                 val uri = request.url
+                val fullUrl = uri.toString()
                 val host = uri.host?.lowercase() ?: ""
 
-                // Serve local assets from https://appassets.androidplatform.net/assets/...
                 if (uri.scheme == "https" && host == ASSET_HOST && uri.path?.startsWith("/assets/") == true) {
                     val assetPath = uri.path!!.removePrefix("/assets/")
                     return try {
@@ -228,8 +240,8 @@ class MainActivity : Activity() {
                     }
                 }
 
-                // Block common ad/popup script domains
-                if (AD_HOSTS.any { host == it || host.endsWith(".$it") }) {
+                // Kill ad scripts, banners, and popup injectors at the network level
+                if (isAdUrl(fullUrl)) {
                     return WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(ByteArray(0)))
                 }
 
@@ -238,17 +250,22 @@ class MainActivity : Activity() {
 
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val uri = request.url
+                val fullUrl = uri.toString()
                 val scheme = uri.scheme?.lowercase() ?: ""
                 val host = uri.host?.lowercase() ?: ""
 
-                // Block non-web schemes (intent://, market://, etc.)
-                if (scheme != "http" && scheme != "https") {
-                    return true
-                }
+                if (scheme != "http" && scheme != "https") return true
+                if (isAdUrl(fullUrl)) return true
 
-                // Block navigation to ad domains
-                if (AD_HOSTS.any { host == it || host.endsWith(".$it") }) {
-                    return true
+                // If top-level frame tries to redirect away to an unknown ad domain, block it!
+                if (request.isForMainFrame) {
+                    val allowedMainHosts = listOf(
+                        ASSET_HOST, "onhockey.tv", "nhlstreams.io", "nhlbite.com", "sportsurge.net"
+                    )
+                    if (allowedMainHosts.none { host == it || host.endsWith(".$it") }) {
+                        // Block top-level click-hijack redirects!
+                        return true
+                    }
                 }
 
                 return false
@@ -261,6 +278,10 @@ class MainActivity : Activity() {
 
                 val isHome = url != null && url.startsWith(APP_ORIGIN)
                 backToHubBar.visibility = if (isHome) View.GONE else View.VISIBLE
+
+                if (!isHome && url != null) {
+                    injectStreamCleanerAndGameFinder()
+                }
 
                 webView.requestFocus()
             }
@@ -309,10 +330,96 @@ class MainActivity : Activity() {
         }
     }
 
+    /**
+     * Strips website clutter/banners/chat and automatically locates & expands the selected NHL game.
+     */
+    private fun injectStreamCleanerAndGameFinder() {
+        val away = JSONObject.quote(targetAwayTeam.lowercase())
+        val home = JSONObject.quote(targetHomeTeam.lowercase())
+
+        val js = """
+            (function() {
+                // 1. Disable window.open and invisible full-screen click-hijack overlays
+                window.open = function() { return null; };
+                
+                var style = document.createElement('style');
+                style.innerHTML = `
+                    body { background: #0B0F19 !important; color: #F8FAFC !important; overflow-x: hidden !important; }
+                    img[src*="aliexpress"], a[href*="aliexpress"], iframe[src*="ads"], 
+                    .chat, #chat, [id*="chat"], [class*="banner"], [id*="banner"], 
+                    [class*="advert"], [id*="advert"] { display: none !important; }
+                `;
+                document.head.appendChild(style);
+
+                function cleanAndFindGame() {
+                    var awayTeam = $away;
+                    var homeTeam = $home;
+
+                    // Remove high z-index transparent click-jacking overlays
+                    document.querySelectorAll('div, a, ins').forEach(function(el) {
+                        var st = window.getComputedStyle(el);
+                        if ((st.position === 'fixed' || st.position === 'absolute') && parseInt(st.zIndex, 10) > 999) {
+                            if (!el.querySelector('video') && !el.querySelector('iframe')) {
+                                el.remove();
+                            }
+                        }
+                    });
+
+                    // Auto-locate and click the specific NHL game row if team names were passed
+                    if (awayTeam || homeTeam) {
+                        var docs = [document];
+                        document.querySelectorAll('iframe').forEach(function(f) {
+                            try { if (f.contentDocument) docs.push(f.contentDocument); } catch(e) {}
+                        });
+
+                        docs.forEach(function(doc) {
+                            var links = doc.querySelectorAll('a, tr, div.game, li');
+                            for (var i = 0; i < links.length; i++) {
+                                var txt = (links[i].innerText || '').toLowerCase();
+                                if (txt.length > 3 && txt.length < 120 &&
+                                    ((awayTeam && txt.includes(awayTeam)) || (homeTeam && txt.includes(homeTeam)))) {
+                                    links[i].style.background = '#1E3A8A';
+                                    links[i].style.color = '#38BDF8';
+                                    links[i].style.fontWeight = 'bold';
+                                    links[i].scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                    var clickable = links[i].tagName === 'A' ? links[i] : links[i].querySelector('a');
+                                    if (clickable && !clickable.dataset.autoOpened) {
+                                        clickable.dataset.autoOpened = 'true';
+                                        clickable.click();
+                                        break;
+                                    }
+                                }
+                            }
+                        });
+                    }
+                }
+
+                setTimeout(cleanAndFindGame, 800);
+                setTimeout(cleanAndFindGame, 2500);
+            })();
+        """.trimIndent()
+
+        webView.evaluateJavascript(js, null)
+    }
+
     inner class Bridge {
         @JavascriptInterface
         fun triggerGitHubUpdate() {
             runOnUiThread { startUpdateCheck() }
+        }
+
+        @JavascriptInterface
+        fun openGameStream(providerUrl: String, awayTeam: String, homeTeam: String) {
+            runOnUiThread {
+                targetAwayTeam = awayTeam
+                targetHomeTeam = homeTeam
+                backToHubBar.text = if (awayTeam.isNotEmpty()) {
+                    "← Back to Hub ($awayTeam @ $homeTeam)"
+                } else {
+                    "← Back to IceStream Hub"
+                }
+                webView.loadUrl(providerUrl)
+            }
         }
 
         @JavascriptInterface
@@ -367,7 +474,7 @@ class MainActivity : Activity() {
             )
             toast("Enable 'Allow from this source', then tap Check Updates again.")
         } catch (_: ActivityNotFoundException) {
-            toast("Allow this app to install unknown apps in Settings (Fire TV: My Fire TV › Developer Options › Install unknown apps).")
+            toast("Allow this app to install unknown apps in Settings.")
         }
     }
 
@@ -418,14 +525,7 @@ class MainActivity : Activity() {
         }
         try {
             val code = conn.responseCode
-            if (code != 200) {
-                val hint = if (code == 404) {
-                    "HTTP 404: Make sure the repo is Public and has a published Release."
-                } else {
-                    "GitHub API returned HTTP $code"
-                }
-                throw IOException(hint)
-            }
+            if (code != 200) throw IOException("GitHub API HTTP $code")
 
             val json = JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
             val assets = json.getJSONArray("assets")
