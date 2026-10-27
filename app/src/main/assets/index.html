@@ -1,233 +1,419 @@
-<!DOCTYPE html>
-<html lang="en">
+<!doctype html>
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="utf8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <title>IceStream Hub</title>
-    <style>
-        body {
-            background-color: #0B0F19;
-            color: #F8FAFC;
-            font-family: system-ui, -apple-system, sans-serif;
-            margin: 0;
-            padding: 12px;
-        }
-        .header-bar {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            border-bottom: 2px solid #1E293B;
-            padding-bottom: 8px;
-            margin-bottom: 12px;
-        }
-        h2 {
-            font-size: 18px;
-            color: #38BDF8;
-            margin: 0;
-        }
-        .update-btn {
-            background: #334155;
-            color: #38BDF8;
-            border: 1px solid #475569;
-            border-radius: 6px;
-            padding: 6px 10px;
-            font-size: 11px;
-            font-weight: 600;
-            cursor: pointer;
-        }
-        .portal-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
-            margin-bottom: 15px;
-        }
-        .portal-card {
-            background: #1E293B;
-            border: 1px solid #334155;
-            border-radius: 10px;
-            padding: 12px;
-            text-align: center;
-            cursor: pointer;
-        }
-        .portal-card:active {
-            background: #2563EB;
-        }
-        .portal-title {
-            font-weight: bold;
-            font-size: 14px;
-            color: #F8FAFC;
-        }
-        .section-title {
-            font-size: 14px;
-            color: #94A3B8;
-            margin: 15px 0 8px 0;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-        .game-card {
-            background: #111827;
-            border: 1px solid #1E293B;
-            border-radius: 12px;
-            padding: 12px;
-            margin-bottom: 10px;
-        }
-        .game-header {
-            display: flex;
-            justify-content: space-between;
-            font-size: 12px;
-            color: #94A3B8;
-            margin-bottom: 8px;
-            font-weight: 600;
-        }
-        .team-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            font-size: 15px;
-            font-weight: bold;
-            color: #F1F5F9;
-            margin: 4px 0;
-        }
-        .score {
-            font-size: 16px;
-            color: #38BDF8;
-        }
-        .btn {
-            background: #2563EB;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            padding: 8px 14px;
-            font-weight: 600;
-            font-size: 13px;
-            cursor: pointer;
-            width: 100%;
-            text-align: center;
-            margin-top: 8px;
-        }
-        #provider-view {
-            display: none;
-        }
-        iframe {
-            width: 100%;
-            min-height: 350px;
-            border: 2px solid #334155;
-            border-radius: 10px;
-            background: #000;
-        }
-    </style>
+<style>
+    :root {
+        --bg: #0B0F19;
+        --fg: #F8FAFC;
+        --muted: #94A3B8;
+        --faint: #64748B;
+        --surface: #111827;
+        --surface-2: #1E293B;
+        --border: #1E293B;
+        --accent: #38BDF8;
+        --live: #EF4444;
+        --final: #64748B;
+    }
+
+    body {
+        background-color: var(--bg);
+        color: var(--fg);
+        font-family: system-ui, -apple-system, sans-serif;
+        margin: 0;
+        padding: 16px;
+    }
+    .header-bar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 2px solid #1E293B;
+        padding-bottom: 10px;
+        margin-bottom: 16px;
+    }
+    h2 {
+        font-size: 22px;
+        color: #38BDF8;
+        margin: 0;
+    }
+    /* TV Remote Focus State for Buttons and Cards */
+    button:focus, .portal-card:focus, .watch-btn:focus, .btn:focus, .game-card:focus-within {
+        outline: 3px solid #38BDF8;
+        outline-offset: 2px;
+        background-color: #1E3A8A !important;
+    }
+    .update-btn {
+        background: #334155;
+        color: #38BDF8;
+        border: 2px solid #475569;
+        border-radius: 8px;
+        padding: 8px 14px;
+        font-size: 13px;
+        font-weight: bold;
+        cursor: pointer;
+    }
+    .portal-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+        margin-bottom: 20px;
+    }
+    .portal-card {
+        background: #1E293B;
+        border: 2px solid #334155;
+        border-radius: 12px;
+        padding: 16px;
+        text-align: center;
+        cursor: pointer;
+    }
+    .portal-card:hover {
+        border-color: #38BDF8;
+    }
+    .portal-title {
+        font-weight: bold;
+        font-size: 16px;
+        color: #F8FAFC;
+    }
+    .section-title {
+        font-size: 15px;
+        color: #94A3B8;
+        margin: 20px 0 10px 0;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        font-weight: bold;
+    }
+
+    /* ---- NHL.com-style scoreboard ---- */
+    .scoreboard-strip {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+    .game-card {
+        position: relative;
+        background: linear-gradient(180deg, var(--surface) 0%, #0D1320 100%);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 12px 14px 12px 18px;
+        overflow: hidden;
+    }
+    .game-card::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 4px;
+        background: var(--border);
+    }
+    .game-card.is-live::before {
+        background: var(--live);
+    }
+    .game-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 11px;
+        color: var(--muted);
+        margin-bottom: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+    }
+    .game-header .league-tag {
+        color: var(--faint);
+        letter-spacing: 1px;
+    }
+    .state-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.5px;
+        padding: 2px 8px;
+        border-radius: 999px;
+    }
+    .state-pill.live {
+        color: #FCA5A5;
+        background: rgba(239, 68, 68, 0.14);
+    }
+    .state-pill.live .dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--live);
+        animation: pulse-dot 1.4s ease-in-out infinite;
+    }
+    .state-pill.upcoming {
+        color: var(--muted);
+        background: rgba(148, 163, 184, 0.12);
+    }
+    .state-pill.final {
+        color: #CBD5E1;
+        background: rgba(100, 116, 139, 0.18);
+    }
+    @keyframes pulse-dot {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.35; }
+    }
+
+    .matchup {
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+        align-items: center;
+        gap: 10px;
+    }
+    .team-col {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+    }
+    .team-col.away { justify-content: flex-start; }
+    .team-col.home { justify-content: flex-end; flex-direction: row-reverse; text-align: right; }
+    .team-logo {
+        width: 34px;
+        height: 34px;
+        object-fit: contain;
+        flex-shrink: 0;
+    }
+    .team-name {
+        font-size: 14px;
+        font-weight: 700;
+        color: var(--fg);
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .score-col {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-variant-numeric: tabular-nums;
+        font-size: 28px;
+        font-weight: 800;
+        color: var(--fg);
+        padding: 0 4px;
+    }
+    .score-col .sep {
+        font-size: 16px;
+        color: var(--faint);
+        font-weight: 600;
+    }
+    .score-col .score.leader {
+        color: var(--accent);
+    }
+    .score-col .score.trailing {
+        color: var(--muted);
+    }
+
+    .game-footer {
+        margin-top: 10px;
+        display: flex;
+        justify-content: flex-end;
+    }
+    .watch-btn {
+        background: #2563EB;
+        color: white;
+        border: 2px solid transparent;
+        border-radius: 10px;
+        padding: 9px 16px;
+        font-weight: bold;
+        font-size: 14px;
+        cursor: pointer;
+    }
+    .watch-btn:hover {
+        background: #1D4ED8;
+    }
+
+    .scoreboard-empty, .scoreboard-error {
+        color: var(--faint);
+        font-size: 14px;
+        text-align: center;
+        padding: 25px;
+    }
+    .scoreboard-error { color: #EF4444; padding: 15px; }
+
+    .btn {
+        background: #2563EB;
+        color: white;
+        border: 2px solid transparent;
+        border-radius: 10px;
+        padding: 10px 16px;
+        font-weight: bold;
+        font-size: 15px;
+        cursor: pointer;
+        width: 100%;
+        text-align: center;
+        margin-top: 12px;
+    }
+    .btn:hover {
+        background: #1D4ED8;
+    }
+    #provider-view {
+        display: none;
+    }
+    iframe {
+        width: 100%;
+        min-height: 450px;
+        border: 2px solid #334155;
+        border-radius: 12px;
+        background: #000;
+    }
+
+    @media (max-width: 420px) {
+        .team-name { font-size: 12.5px; }
+        .score-col { font-size: 22px; }
+        .team-logo { width: 28px; height: 28px; }
+    }
+</style>
 </head>
 <body>
 
-    <div class="header-bar">
-        <h2>🏒 IceStream Hub</h2>
-        <button class="update-btn" id="update-status-btn" onclick="triggerUpdate()">🔄 Check Updates</button>
-    </div>
+<div class="header-bar">
+    <h2>🏒 IceStream Hub</h2>
+    <button class="update-btn" id="update-status-btn" onclick="triggerUpdate()">🔄 Check Updates</button>
+</div>
 
-    <!-- Portal Home View -->
-    <div id="home-view">
-        <div class="section-title">Select Provider Portal</div>
-        <div class="portal-grid">
-            <div class="portal-card" onclick="openProvider('https://onhockey.tv/')">
-                <div class="portal-title">OnHockey</div>
-            </div>
-            <div class="portal-card" onclick="openProvider('https://nhlstreams.io/')">
-                <div class="portal-title">NHLStreams.io</div>
-            </div>
+<!-- Portal Home View -->
+<div id="home-view">
+    <div class="section-title">Select Provider Portal</div>
+    <div class="portal-grid">
+        <div class="portal-card" tabindex="0" onclick="openProvider('https://onhockey.tv/')">
+            <div class="portal-title">OnHockey</div>
         </div>
-
-        <div class="section-title">Today's Live NHL Scores</div>
-        <div id="nhl-scoreboard">
-            <div style="color: #64748B; font-size: 13px; text-align:center; padding: 20px;">Loading live games...</div>
+        <div class="portal-card" tabindex="0" onclick="openProvider('https://nhlstreams.io/')">
+            <div class="portal-title">NHLStreams.io</div>
         </div>
     </div>
 
-    <!-- Active Stream Provider View -->
-    <div id="provider-view">
-        <button class="btn" style="background:#475569; margin-bottom:10px;" onclick="closeProvider()">← Back to Hub Home</button>
-        <iframe id="provider-frame" src=""></iframe>
+    <div class="section-title">Today's Live NHL Scores</div>
+    <div id="nhl-scoreboard">
+        <div class="scoreboard-empty">Loading live games...</div>
     </div>
+</div>
 
-    <script>
-        // Fetch Live NHL Scores from Official API
-        async function loadNhlScores() {
-            try {
-                let response = await fetch('https://api-web.nhle.com/v1/score/now');
-                let data = await response.json();
-                let container = document.getElementById('nhl-scoreboard');
-                container.innerHTML = '';
+<!-- Active Stream Provider View -->
+<div id="provider-view">
+    <button class="btn" tabindex="0" style="background:#475569; margin-bottom:12px;" onclick="closeProvider()">← Back to Hub Home</button>
+    <iframe id="provider-frame" src=""></iframe>
+</div>
 
-                let games = data.games || [];
-                if (games.length === 0) {
-                    container.innerHTML = '<div style="color: #64748B; font-size: 13px; text-align:center; padding: 20px;">No NHL games scheduled for today.</div>';
-                    return;
+<script>
+    async function loadNhlScores() {
+        try {
+            let response = await fetch('https://api-web.nhle.com/v1/score/now');
+            let data = await response.json();
+            let container = document.getElementById('nhl-scoreboard');
+            container.innerHTML = '';
+
+            let games = data.games || [];
+            if (games.length === 0) {
+                container.innerHTML = '<div class="scoreboard-empty">No NHL games scheduled for today.</div>';
+                return;
+            }
+
+            let strip = document.createElement('div');
+            strip.className = 'scoreboard-strip';
+
+            games.forEach(game => {
+                let homeTeam = game.homeTeam.commonName.default;
+                let awayTeam = game.awayTeam.commonName.default;
+                let homeLogo = game.homeTeam.logo;
+                let awayLogo = game.awayTeam.logo;
+                let homeScoreRaw = game.homeTeam.score;
+                let awayScoreRaw = game.awayTeam.score;
+                let homeScore = homeScoreRaw ?? '-';
+                let awayScore = awayScoreRaw ?? '-';
+                let gameState = game.gameState;
+
+                let isLive = gameState === 'LIVE' || gameState === 'CRIT';
+                let isFinal = gameState === 'FINAL' || gameState === 'OFF';
+
+                let pillClass = 'upcoming';
+                let pillHtml = 'Upcoming';
+                if (isLive) {
+                    pillClass = 'live';
+                    let periodType = game.periodDescriptor ? (game.periodDescriptor.periodType || '') : '';
+                    let periodNum = game.periodDescriptor ? game.periodDescriptor.number : '';
+                    let periodLabel = periodType === 'OT' ? 'OT' : (periodNum ? 'P' + periodNum : 'LIVE');
+                    pillHtml = '<span class="dot"></span>' + periodLabel;
+                } else if (isFinal) {
+                    pillClass = 'final';
+                    pillHtml = 'Final';
                 }
 
-                games.forEach(game => {
-                    let homeTeam = game.homeTeam.commonName.default;
-                    let awayTeam = game.awayTeam.commonName.default;
-                    let homeScore = game.homeTeam.score ?? '-';
-                    let awayScore = game.awayTeam.score ?? '-';
-                    let gameState = game.gameState; // PRE, LIVE, FINAL
+                let homeLeads = homeScoreRaw != null && awayScoreRaw != null && homeScoreRaw > awayScoreRaw;
+                let awayLeads = homeScoreRaw != null && awayScoreRaw != null && awayScoreRaw > homeScoreRaw;
+                let showScoreEmphasis = isLive || isFinal;
 
-                    let stateText = "Upcoming";
-                    if (gameState === "LIVE") stateText = "LIVE ● " + (game.periodDescriptor ? game.periodDescriptor.periodType : "");
-                    if (gameState === "FINAL") stateText = "Final";
-
-                    let card = document.createElement('div');
-                    card.className = 'game-card';
-                    card.innerHTML = `
-                        <div class="game-header">
-                            <span>NHL</span>
-                            <span style="color: ${gameState === 'LIVE' ? '#38BDF8' : '#94A3B8'};">${stateText}</span>
+                let card = document.createElement('div');
+                card.className = 'game-card' + (isLive ? ' is-live' : '');
+                card.innerHTML = `
+                    <div class="game-header">
+                        <span class="league-tag">NHL</span>
+                        <span class="state-pill ${pillClass}">${pillHtml}</span>
+                    </div>
+                    <div class="matchup">
+                        <div class="team-col away">
+                            <img src="${awayLogo}" class="team-logo" alt="">
+                            <span class="team-name">${awayTeam}</span>
                         </div>
-                        <div class="team-row">
-                            <span>${awayTeam}</span>
-                            <span class="score">${awayScore}</span>
+                        <div class="score-col">
+                            <span class="score ${showScoreEmphasis && awayLeads ? 'leader' : (showScoreEmphasis && homeLeads ? 'trailing' : '')}">${awayScore}</span>
+                            <span class="sep">–</span>
+                            <span class="score ${showScoreEmphasis && homeLeads ? 'leader' : (showScoreEmphasis && awayLeads ? 'trailing' : '')}">${homeScore}</span>
                         </div>
-                        <div class="team-row">
-                            <span>${homeTeam}</span>
-                            <span class="score">${homeScore}</span>
+                        <div class="team-col home">
+                            <img src="${homeLogo}" class="team-logo" alt="">
+                            <span class="team-name">${homeTeam}</span>
                         </div>
-                        <button class="btn" onclick="openProvider('https://onhockey.tv/')">▶ Watch Stream</button>
-                    `;
-                    container.appendChild(card);
-                });
-            } catch (e) {
-                document.getElementById('nhl-scoreboard').innerHTML = '<div style="color: #EF4444; font-size: 13px; text-align:center; padding: 10px;">Failed to load live scores</div>';
-            }
-        }
+                    </div>
+                    <div class="game-footer">
+                        <button class="watch-btn" tabindex="0" onclick="openProvider('https://onhockey.tv/')">▶ Watch Stream</button>
+                    </div>
+                `;
+                strip.appendChild(card);
+            });
 
-        function openProvider(url) {
-            document.getElementById('home-view').style.display = 'none';
-            var prov = document.getElementById('provider-view');
-            prov.style.display = 'block';
-            document.getElementById('provider-frame').src = url;
+            container.appendChild(strip);
+        } catch (e) {
+            document.getElementById('nhl-scoreboard').innerHTML = '<div class="scoreboard-error">Failed to load live scores</div>';
         }
+    }
 
-        function closeProvider() {
-            document.getElementById('provider-frame').src = "";
-            document.getElementById('provider-view').style.display = 'none';
-            document.getElementById('home-view').style.display = 'block';
+    function openProvider(url) {
+        document.getElementById('home-view').style.display = 'none';
+        var prov = document.getElementById('provider-view');
+        prov.style.display = 'block';
+        document.getElementById('provider-frame').src = url;
+    }
+
+    function closeProvider() {
+        document.getElementById('provider-frame').src = "";
+        document.getElementById('provider-view').style.display = 'none';
+        document.getElementById('home-view').style.display = 'block';
+    }
+
+    function triggerUpdate() {
+        var btn = document.getElementById('update-status-btn');
+        btn.innerText = "Checking...";
+        if (window.AndroidBridge) {
+            window.AndroidBridge.triggerGitHubUpdate();
         }
+    }
 
-        function triggerUpdate() {
-            var btn = document.getElementById('update-status-btn');
-            btn.innerText = "Checking...";
-            if (window.AndroidBridge) {
-                window.AndroidBridge.triggerGitHubUpdate();
-            }
-        }
+    function setUpdateStatus(statusText) {
+        document.getElementById('update-status-btn').innerText = statusText;
+    }
 
-        function setUpdateStatus(statusText) {
-            document.getElementById('update-status-btn').innerText = statusText;
-        }
-
-        // Load scores on start
-        loadNhlScores();
-        // Refresh scores every 60 seconds
-        setInterval(loadNhlScores, 60000);
-    </script>
+    loadNhlScores();
+    setInterval(loadNhlScores, 60000);
+</script>
 
 </body>
 </html>
