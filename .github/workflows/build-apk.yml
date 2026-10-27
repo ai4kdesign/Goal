@@ -6,7 +6,6 @@ on:
       - main
       - master
 
-# Required so the workflow can commit the persistent keystore (once) and publish Releases
 permissions:
   contents: write
 
@@ -26,8 +25,12 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.5'
+
       - name: Ensure Persistent Signing Keystore
-        # Creates debug.keystore once and saves it to the repo so every future build shares the exact same signature
         run: |
           mkdir -p ~/.android
           if [ ! -f debug.keystore ]; then
@@ -48,11 +51,8 @@ jobs:
           fi
           cp debug.keystore ~/.android/debug.keystore
 
-      - name: Make gradlew executable
-        run: chmod +x gradlew
-
       - name: Build APK
-        run: ./gradlew assembleDebug
+        run: gradle assembleDebug
 
       - name: Generate Dynamic Release Tag
         run: echo "RELEASE_TAG=v1.0.${{ github.run_number }}" >> $GITHUB_ENV
