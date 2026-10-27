@@ -38,8 +38,7 @@
         color: #38BDF8;
         margin: 0;
     }
-    /* TV Remote Focus State for Buttons and Cards */
-    button:focus, .portal-card:focus, .watch-btn:focus, .btn:focus, .game-card:focus-within {
+    button:focus, .portal-card:focus, .watch-btn:focus, .game-card:focus-within {
         outline: 3px solid #38BDF8;
         outline-offset: 2px;
         background-color: #1E3A8A !important;
@@ -85,7 +84,7 @@
         font-weight: bold;
     }
 
-    /* ---- NHL.com-style scoreboard ---- */
+    /* NHL.com-style scoreboard */
     .scoreboard-strip {
         display: flex;
         flex-direction: column;
@@ -204,12 +203,8 @@
         color: var(--faint);
         font-weight: 600;
     }
-    .score-col .score.leader {
-        color: var(--accent);
-    }
-    .score-col .score.trailing {
-        color: var(--muted);
-    }
+    .score-col .score.leader { color: var(--accent); }
+    .score-col .score.trailing { color: var(--muted); }
 
     .game-footer {
         margin-top: 10px;
@@ -226,9 +221,7 @@
         font-size: 14px;
         cursor: pointer;
     }
-    .watch-btn:hover {
-        background: #1D4ED8;
-    }
+    .watch-btn:hover { background: #1D4ED8; }
 
     .scoreboard-empty, .scoreboard-error {
         color: var(--faint);
@@ -237,33 +230,6 @@
         padding: 25px;
     }
     .scoreboard-error { color: #EF4444; padding: 15px; }
-
-    .btn {
-        background: #2563EB;
-        color: white;
-        border: 2px solid transparent;
-        border-radius: 10px;
-        padding: 10px 16px;
-        font-weight: bold;
-        font-size: 15px;
-        cursor: pointer;
-        width: 100%;
-        text-align: center;
-        margin-top: 12px;
-    }
-    .btn:hover {
-        background: #1D4ED8;
-    }
-    #provider-view {
-        display: none;
-    }
-    iframe {
-        width: 100%;
-        min-height: 450px;
-        border: 2px solid #334155;
-        border-radius: 12px;
-        background: #000;
-    }
 
     @media (max-width: 420px) {
         .team-name { font-size: 12.5px; }
@@ -279,7 +245,6 @@
     <button class="update-btn" id="update-status-btn" onclick="triggerUpdate()">🔄 Check Updates</button>
 </div>
 
-<!-- Portal Home View -->
 <div id="home-view">
     <div class="section-title">Select Provider Portal</div>
     <div class="portal-grid">
@@ -295,12 +260,6 @@
     <div id="nhl-scoreboard">
         <div class="scoreboard-empty">Loading live games...</div>
     </div>
-</div>
-
-<!-- Active Stream Provider View -->
-<div id="provider-view">
-    <button class="btn" tabindex="0" style="background:#475569; margin-bottom:12px;" onclick="closeProvider()">← Back to Hub Home</button>
-    <iframe id="provider-frame" src=""></iframe>
 </div>
 
 <script>
@@ -387,23 +346,16 @@
     }
 
     function openProvider(url) {
-        document.getElementById('home-view').style.display = 'none';
-        var prov = document.getElementById('provider-view');
-        prov.style.display = 'block';
-        document.getElementById('provider-frame').src = url;
-    }
-
-    function closeProvider() {
-        document.getElementById('provider-frame').src = "";
-        document.getElementById('provider-view').style.display = 'none';
-        document.getElementById('home-view').style.display = 'block';
+        window.location.href = url;
     }
 
     function triggerUpdate() {
         var btn = document.getElementById('update-status-btn');
         btn.innerText = "Checking...";
-        if (window.AndroidBridge) {
+        if (window.AndroidBridge && window.AndroidBridge.triggerGitHubUpdate) {
             window.AndroidBridge.triggerGitHubUpdate();
+        } else if (window.AndroidBridge && window.AndroidBridge.postMessage) {
+            window.AndroidBridge.postMessage("checkUpdate");
         }
     }
 
