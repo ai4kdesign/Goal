@@ -19,6 +19,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import android.widget.ProgressBar
+import android.widget.Toast
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -39,8 +40,8 @@ class MainActivity : Activity() {
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
 
     private val GITHUB_REPO_API = "https://api.github.com/repos/dspirovski-design/Goal/releases/latest"
-    // PASTE YOUR GITHUB PERSONAL ACCESS TOKEN HERE
-    private val GITHUB_TOKEN = "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"
+    private val GITHUB_TOKEN = "github_pat_YOUR_TOKEN_HERE" // Your private token
+    private val CURRENT_VERSION = "1.0" // Match this with your release tags (e.g. 1.0, 1.1, etc.)
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -138,20 +139,30 @@ class MainActivity : Activity() {
                 val connection = url.openConnection() as HttpURLConnection
                 connection.requestMethod = "GET"
                 connection.setRequestProperty("User-Agent", "Android-Updater")
-                // Authenticate request so private repo allows access
                 connection.setRequestProperty("Authorization", "Bearer $GITHUB_TOKEN")
+                connection.connectTimeout = 10000
+                connection.readTimeout = 10000
 
                 if (connection.responseCode == 200) {
                     val response = connection.inputStream.bufferedReader().use { it.readText() }
                     val json = JSONObject(response)
+                    val latestTag = json.getString("tag_name").replace("v", "").trim()
+
+                    // Compare versions smartly
+                    if (latestTag == CURRENT_VERSION) {
+                        updateWebViewButton("Up to date!")
+                        showToast("App is already up to date (v$CURRENT_VERSION)")
+                        return@launch
+                    }
+
+                    updateWebViewButton("New v$latestTag found")
                     val assets = json.getJSONArray("assets")
                     
                     var downloadUrl = ""
                     for (i in 0 until assets.length()) {
                         val asset = assets.getJSONObject(i)
                         if (asset.getString("name").endsWith(".apk")) {
-                            // GitHub private asset downloads require the API redirect header or token auth
-                            downloadUrl = asset.getString("url") // Use API asset URL for private repos
+                            downloadUrl = asset.getString("browser_download_url")
                             break
                         }
                     }
@@ -160,29 +171,41 @@ class MainActivity : Activity() {
                         downloadAndInstallPrivateApk(downloadUrl)
                     } else {
                         updateWebViewButton("No APK Found")
+                        showToast("Release found, but no .apk asset attached.")
                     }
                 } else {
                     updateWebViewButton("Auth Failed")
+                    showToast("GitHub Authentication Failed. Check token.")
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
                 updateWebViewButton("Error")
+                showToast("Update check error: ${e.localizedMessage}")
             }
         }
     }
 
-    private suspend fun downloadAndInstallPrivateApk(apiUrl: String) {
+    private suspend fun downloadAndInstallPrivateApk(fileUrl: String) {
         withContext(Dispatchers.IO) {
             try {
                 updateWebViewButton("Downloading...")
-                val url = URL(apiUrl)
+                
+                // Clear out any old cached update files first to prevent storage bloat
+                val dir = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+                val oldFile = File(dir, "update.apk")
+                if (oldFile.exists()) oldFile.delete()
+
+                val url = URL(fileUrl)
                 val connection = url.openConnection() as HttpURLConnection
+                connection.requestMethod = "GET"
                 connection.setRequestProperty("Authorization", "Bearer $GITHUB_TOKEN")
-                // Tell GitHub to stream the binary file rather than JSON metadata
                 connection.setRequestProperty("Accept", "application/octet-stream")
+                connection.instanceFollowRedirects = true
+                connection.connectTimeout = 15000
+                connection.readTimeout = 30000
                 connection.connect()
 
-                val file = File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "update.apk")
+                val file = File(dir, "update.apk")
                 connection.inputStream.use { input ->
                     file.outputStream().use { output ->
                         input.copyTo(output)
@@ -191,11 +214,13 @@ class MainActivity : Activity() {
 
                 withContext(Dispatchers.Main) {
                     updateWebViewButton("Ready to Install")
+                    showToast("Download complete. Launching installer...")
                     triggerInstall(file)
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
                 updateWebViewButton("Download Error")
+                showToast("Download failed: ${e.localizedMessage}")
             }
         }
     }
@@ -203,6 +228,12 @@ class MainActivity : Activity() {
     private suspend fun updateWebViewButton(status: String) {
         withContext(Dispatchers.Main) {
             webView.evaluateJavascript("setUpdateStatus('$status');", null)
+        }
+    }
+
+    private suspend fun showToast(message: String) {
+        withContext(Dispatchers.Main) {
+            Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
         }
     }
 
