@@ -11,6 +11,7 @@ import android.content.IntentFilter
 import android.content.pm.PackageInfo
 import android.content.pm.PackageInstaller
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.Typeface
 import android.net.Uri
@@ -55,6 +56,7 @@ import java.security.MessageDigest
 class MainActivity : Activity() {
 
     companion object {
+        // Keep your portal URL configured here
         private const val START_URL = "https://nhlstreams.io/"
 
         private const val GITHUB_RELEASE_API =
@@ -68,7 +70,8 @@ class MainActivity : Activity() {
         private val AD_KEYWORDS = listOf(
             "doubleclick", "googlesyndication", "adservice", "popads", "popcash",
             "propellerads", "adsterra", "exoclick", "juicyads", "clickadu",
-            "hilltopads", "taboola", "outbrain", "histats", "realsrv.com", "onclkds.com"
+            "hilltopads", "taboola", "outbrain", "histats", "realsrv.com",
+            "onclkds.com", "aliexpress"
         )
     }
 
@@ -127,8 +130,16 @@ class MainActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
 
-        val homeBtn = createNavButton("🏠 Games") {
-            webView.loadUrl(START_URL)
+        // Returns to main schedule list (or scrolls to top if already on it)
+        val homeBtn = createNavButton("🏠 Schedule") {
+            val current = webView.url?.trimEnd('/') ?: ""
+            val target = START_URL.trimEnd('/')
+            if (current.equals(target, ignoreCase = true)) {
+                webView.evaluateJavascript("window.scrollTo({top: 0, behavior: 'smooth'});", null)
+                toast("Already on main schedule")
+            } else {
+                webView.loadUrl(START_URL)
+            }
         }
 
         val reloadBtn = createNavButton("🔄 Reload") {
@@ -267,12 +278,29 @@ class MainActivity : Activity() {
                 return false
             }
 
+            // Hide WebView while loading so unwanted sections never flash on screen
+            override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
+                super.onPageStarted(view, url, favicon)
+                webView.visibility = View.INVISIBLE
+                loadingSpinner.visibility = View.VISIBLE
+                injectCustomUiCleanup()
+            }
+
+            // Inject cleanup as soon as the DOM starts committing (before paint finishes)
+            override fun onPageCommitVisible(view: WebView, url: String?) {
+                super.onPageCommitVisible(view, url)
+                injectCustomUiCleanup()
+            }
+
             override fun onPageFinished(view: WebView, url: String?) {
                 super.onPageFinished(view, url)
-                loadingSpinner.visibility = View.GONE
-                webView.visibility = View.VISIBLE
                 injectCustomUiCleanup()
-                webView.requestFocus()
+                // Brief 120ms delay so the DOM cleanup finishes before revealing the WebView
+                webView.postDelayed({
+                    loadingSpinner.visibility = View.GONE
+                    webView.visibility = View.VISIBLE
+                    webView.requestFocus()
+                }, 120)
             }
 
             override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
@@ -319,6 +347,10 @@ class MainActivity : Activity() {
         }
     }
 
+    /**
+     * Injects CSS + a live MutationObserver so unwanted headers, "Buy Plan", "LIVE CHANNELS",
+     * channel logos, and bottom SEO articles are hidden immediately without flashing.
+     */
     private fun injectCustomUiCleanup() {
         val js = """
             (function() {
@@ -328,16 +360,17 @@ class MainActivity : Activity() {
                     var style = document.createElement('style');
                     style.id = 'custom-tv-style';
                     style.innerHTML = `
-                        /* 1. Hide site headers, navbars, footers, and share boxes */
+                        /* 1. Hide site headers, navbars, footers, buy-plan, premium, and share boxes */
                         header, nav, .navbar, .site-header, .header-main,
-                        [class*="buy-plan"], [class*="premium"], [class*="share"],
-                        .social-share, footer {
+                        [class*="buy-plan"], [class*="buy_plan"], [class*="buyplan"],
+                        [class*="premium"], [class*="share"], .social-share,
+                        article, .seo-text, .content-seo, .about-section, footer {
                             display: none !important;
                         }
 
                         /* 2. Hide banner ad containers, sponsor boxes, and promo images */
-                        img[src*="aliexpress"], a[href*="aliexpress"], 
-                        [class*="banner"], [id*="banner"], 
+                        img[src*="aliexpress"], a[href*="aliexpress"],
+                        [class*="banner"], [id*="banner"],
                         [class*="advert"], [id*="advert"],
                         [class*="sponsor"], [id*="sponsor"],
                         iframe[src*="ads"], ins.adsbygoogle {
@@ -370,23 +403,88 @@ class MainActivity : Activity() {
                             color: #FFFFFF !important;
                         }
                     `;
-                    if (document.head) document.head.appendChild(style);
+                    (document.head || document.documentElement).appendChild(style);
                 }
 
-                // Periodic DOM sweep to catch dynamically loaded banner images
-                function sweepAds() {
-                    document.querySelectorAll('img, a, div').forEach(function(el) {
-                        var src = el.src || el.href || '';
-                        if (typeof src === 'string' && (src.includes('aliexpress') || src.includes('banner') || src.includes('promo'))) {
-                            var target = el.closest('a, div[class*="banner"], div[style*="banner"]') || el;
-                            target.style.display = 'none';
+                function hideElementAndFollowingSiblings(startEl) {
+                    var curr = startEl;
+                    while (curr) {
+                        if (curr.style) curr.style.setProperty('display', 'none', 'important');
+                        curr = curr.nextElementSibling;
+                    }
+                }
+
+                function cleanDom() {
+                    // 1. Remove "Buy Plan", "Share", "Settings", "Premium" buttons & badges
+                    document.querySelectorAll('a, button, span, div').forEach(function(el) {
+                        if (el.children.length > 3) return;
+                        var txt = (el.innerText || '').trim().toLowerCase();
+                        if (txt === 'buy plan' || txt === 'share' || txt === 'settings' || txt === 'premium') {
+                            var target = el.closest('button, a') || el;
+                            target.style.setProperty('display', 'none', 'important');
+                        }
+
+                        // Make LINK 1 / LIVE 2 buttons large and D-pad focusable
+                        if (/^(link|live|stream|feed|server)\s*\d+$/i.test(txt)) {
+                            var clickTarget = el.closest('a, button, li') || el;
+                            clickTarget.setAttribute('tabindex', '0');
+                            clickTarget.style.padding = '12px 18px';
+                            clickTarget.style.margin = '4px';
+                            clickTarget.style.background = '#1E293B';
+                            clickTarget.style.color = '#38BDF8';
+                            clickTarget.style.border = '2px solid #38BDF8';
+                            clickTarget.style.borderRadius = '8px';
+                            clickTarget.style.fontWeight = 'bold';
+                        }
+                    });
+
+                    // 2. Remove "LIVE CHANNELS", ESPN/NHL Network logos, and all bottom SEO text
+                    document.querySelectorAll('h1, h2, h3, h4, h5, p, div, section').forEach(function(el) {
+                        var directText = (el.innerText || '').trim();
+                        var upper = directText.toUpperCase();
+
+                        // If this heading is "LIVE CHANNELS" or the bottom SEO article heading
+                        if (upper === 'LIVE CHANNELS' ||
+                            upper.startsWith('NHL STREAMS 2026') ||
+                            upper.includes('WATCH LIVE REDDIT NHL STREAMS')) {
+
+                            // Find the section/container holding this heading (so we don't hide the whole page)
+                            var sectionBlock = el.parentElement;
+                            if (sectionBlock && sectionBlock !== document.body && sectionBlock !== document.documentElement && sectionBlock.children.length <= 12) {
+                                hideElementAndFollowingSiblings(sectionBlock);
+                            } else {
+                                hideElementAndFollowingSiblings(el);
+                            }
+                        }
+
+                        // Hide long SEO paragraphs at the bottom of the page
+                        if (el.tagName === 'P' && directText.length > 140) {
+                            el.style.setProperty('display', 'none', 'important');
+                        }
+                    });
+
+                    // 3. Sweep promotional banner images
+                    document.querySelectorAll('img, a').forEach(function(el) {
+                        var src = (el.src || el.href || '').toLowerCase();
+                        if (src.includes('aliexpress') || src.includes('banner') || src.includes('promo')) {
+                            var wrapper = el.closest('a, div[class*="banner"]') || el;
+                            wrapper.style.setProperty('display', 'none', 'important');
                         }
                     });
                 }
 
-                sweepAds();
-                setTimeout(sweepAds, 1000);
-                setTimeout(sweepAds, 2500);
+                cleanDom();
+
+                // Attach a live MutationObserver so elements are hidden the instant they are added to the DOM
+                if (!window.__tvCleanupObserver && document.documentElement) {
+                    window.__tvCleanupObserver = new MutationObserver(function() {
+                        cleanDom();
+                    });
+                    window.__tvCleanupObserver.observe(document.documentElement, {
+                        childList: true,
+                        subtree: true
+                    });
+                }
             })();
         """.trimIndent()
 
