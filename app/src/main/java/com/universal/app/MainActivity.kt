@@ -56,15 +56,12 @@ import java.security.MessageDigest
 class MainActivity : Activity() {
 
     companion object {
-        // Keep your portal URL configured here
         private const val START_URL = "https://nhlstreams.io/"
 
         private const val GITHUB_RELEASE_API =
             "https://api.github.com/repos/dspirovski-design/Goal/releases/latest"
 
         private const val ACTION_INSTALL_STATUS = "com.universal.app.INSTALL_STATUS"
-        private const val PREFS_NAME = "updater_prefs"
-        private const val KEY_LAST_ASSET_ID = "last_installed_asset_id"
         private const val MAX_APK_BYTES = 200L * 1024 * 1024
 
         private val AD_KEYWORDS = listOf(
@@ -94,7 +91,6 @@ class MainActivity : Activity() {
 
     private val scope = MainScope()
     private var updateJob: Job? = null
-    private var pendingAssetId: Long = -1L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -130,13 +126,12 @@ class MainActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
 
-        // Returns to main schedule list (or scrolls to top if already on it)
         val homeBtn = createNavButton("🏠 Schedule") {
             val current = webView.url?.trimEnd('/') ?: ""
             val target = START_URL.trimEnd('/')
             if (current.equals(target, ignoreCase = true)) {
                 webView.evaluateJavascript("window.scrollTo({top: 0, behavior: 'smooth'});", null)
-                toast("Already on main schedule")
+                toast("At main schedule")
             } else {
                 webView.loadUrl(START_URL)
             }
@@ -278,7 +273,6 @@ class MainActivity : Activity() {
                 return false
             }
 
-            // Hide WebView while loading so unwanted sections never flash on screen
             override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
                 super.onPageStarted(view, url, favicon)
                 webView.visibility = View.INVISIBLE
@@ -286,7 +280,6 @@ class MainActivity : Activity() {
                 injectCustomUiCleanup()
             }
 
-            // Inject cleanup as soon as the DOM starts committing (before paint finishes)
             override fun onPageCommitVisible(view: WebView, url: String?) {
                 super.onPageCommitVisible(view, url)
                 injectCustomUiCleanup()
@@ -295,12 +288,11 @@ class MainActivity : Activity() {
             override fun onPageFinished(view: WebView, url: String?) {
                 super.onPageFinished(view, url)
                 injectCustomUiCleanup()
-                // Brief 120ms delay so the DOM cleanup finishes before revealing the WebView
                 webView.postDelayed({
                     loadingSpinner.visibility = View.GONE
                     webView.visibility = View.VISIBLE
                     webView.requestFocus()
-                }, 120)
+                }, 100)
             }
 
             override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
@@ -348,8 +340,8 @@ class MainActivity : Activity() {
     }
 
     /**
-     * Injects CSS + a live MutationObserver so unwanted headers, "Buy Plan", "LIVE CHANNELS",
-     * channel logos, and bottom SEO articles are hidden immediately without flashing.
+     * Precisely hides site headers, "Buy Plan", "Share", "LIVE CHANNELS" + its 2 logo boxes,
+     * and the bottom SEO article text WITHOUT touching the "TODAY NHL MATCHUP" game list.
      */
     private fun injectCustomUiCleanup() {
         val js = """
@@ -360,42 +352,27 @@ class MainActivity : Activity() {
                     var style = document.createElement('style');
                     style.id = 'custom-tv-style';
                     style.innerHTML = `
-                        /* 1. Hide site headers, navbars, footers, buy-plan, premium, and share boxes */
+                        /* 1. Hide site top navbar, footer, buy-plan, premium, and share buttons */
                         header, nav, .navbar, .site-header, .header-main,
                         [class*="buy-plan"], [class*="buy_plan"], [class*="buyplan"],
                         [class*="premium"], [class*="share"], .social-share,
-                        article, .seo-text, .content-seo, .about-section, footer {
+                        footer {
                             display: none !important;
                         }
 
-                        /* 2. Hide banner ad containers, sponsor boxes, and promo images */
+                        /* 2. Hide ad banners & AliExpress promos */
                         img[src*="aliexpress"], a[href*="aliexpress"],
                         [class*="banner"], [id*="banner"],
                         [class*="advert"], [id*="advert"],
                         [class*="sponsor"], [id*="sponsor"],
                         iframe[src*="ads"], ins.adsbygoogle {
                             display: none !important;
-                            visibility: hidden !important;
                             height: 0 !important;
                             max-height: 0 !important;
                             overflow: hidden !important;
                         }
 
-                        /* 3. Style stream source tabs nicely for D-pad navigation */
-                        a[href*="link"], [class*="link-item"], [class*="stream-tab"], .nav-tabs a, .nav-pills a {
-                            display: inline-block !important;
-                            padding: 12px 18px !important;
-                            margin: 6px 6px !important;
-                            font-size: 16px !important;
-                            font-weight: 800 !important;
-                            color: #F8FAFC !important;
-                            background-color: #1E293B !important;
-                            border: 2px solid #475569 !important;
-                            border-radius: 10px !important;
-                            text-decoration: none !important;
-                        }
-
-                        /* 4. High-visibility focus ring for Fire TV remote */
+                        /* 3. High-visibility focus ring for Fire TV D-pad navigation */
                         a:focus, button:focus, [tabindex]:focus {
                             outline: 3px solid #38BDF8 !important;
                             outline-offset: 2px !important;
@@ -406,25 +383,17 @@ class MainActivity : Activity() {
                     (document.head || document.documentElement).appendChild(style);
                 }
 
-                function hideElementAndFollowingSiblings(startEl) {
-                    var curr = startEl;
-                    while (curr) {
-                        if (curr.style) curr.style.setProperty('display', 'none', 'important');
-                        curr = curr.nextElementSibling;
-                    }
-                }
-
                 function cleanDom() {
-                    // 1. Remove "Buy Plan", "Share", "Settings", "Premium" buttons & badges
+                    // 1. Hide "Buy Plan", "Share", "Settings", "Premium" buttons & badges
                     document.querySelectorAll('a, button, span, div').forEach(function(el) {
                         if (el.children.length > 3) return;
                         var txt = (el.innerText || '').trim().toLowerCase();
                         if (txt === 'buy plan' || txt === 'share' || txt === 'settings' || txt === 'premium') {
-                            var target = el.closest('button, a') || el;
-                            target.style.setProperty('display', 'none', 'important');
+                            var btn = el.closest('button, a') || el;
+                            btn.style.setProperty('display', 'none', 'important');
                         }
 
-                        // Make LINK 1 / LIVE 2 buttons large and D-pad focusable
+                        // Enlarge LINK 1 / LIVE 2 stream source tabs for remote navigation
                         if (/^(link|live|stream|feed|server)\s*\d+$/i.test(txt)) {
                             var clickTarget = el.closest('a, button, li') || el;
                             clickTarget.setAttribute('tabindex', '0');
@@ -438,44 +407,58 @@ class MainActivity : Activity() {
                         }
                     });
 
-                    // 2. Remove "LIVE CHANNELS", ESPN/NHL Network logos, and all bottom SEO text
-                    document.querySelectorAll('h1, h2, h3, h4, h5, p, div, section').forEach(function(el) {
-                        var directText = (el.innerText || '').trim();
-                        var upper = directText.toUpperCase();
+                    // 2. Hide ONLY the "LIVE CHANNELS" heading and its ESPN / NHL Network logo row
+                    //    (Never hide siblings if they contain matchup cards!)
+                    document.querySelectorAll('h1, h2, h3, h4, h5, div, span, p').forEach(function(el) {
+                        if (el.children.length > 2) return;
+                        var txt = (el.innerText || '').trim().toUpperCase();
 
-                        // If this heading is "LIVE CHANNELS" or the bottom SEO article heading
-                        if (upper === 'LIVE CHANNELS' ||
-                            upper.startsWith('NHL STREAMS 2026') ||
-                            upper.includes('WATCH LIVE REDDIT NHL STREAMS')) {
-
-                            // Find the section/container holding this heading (so we don't hide the whole page)
-                            var sectionBlock = el.parentElement;
-                            if (sectionBlock && sectionBlock !== document.body && sectionBlock !== document.documentElement && sectionBlock.children.length <= 12) {
-                                hideElementAndFollowingSiblings(sectionBlock);
-                            } else {
-                                hideElementAndFollowingSiblings(el);
+                        if (txt === 'LIVE CHANNELS') {
+                            el.style.setProperty('display', 'none', 'important');
+                            // Check ONLY the immediate next element: if it's the small 2-logo box (and NOT the matchup list), hide it
+                            var nextEl = el.nextElementSibling;
+                            if (nextEl) {
+                                var nextTxt = (nextEl.innerText || '').toUpperCase();
+                                if (!nextTxt.includes('MATCHUP') && !nextTxt.includes('VS') && nextEl.querySelectorAll('img, a').length <= 6) {
+                                    nextEl.style.setProperty('display', 'none', 'important');
+                                }
                             }
                         }
 
-                        // Hide long SEO paragraphs at the bottom of the page
-                        if (el.tagName === 'P' && directText.length > 140) {
+                        // 3. Hide the bottom SEO article heading ("NHL STREAMS 2026 | WATCH LIVE...")
+                        if (txt.startsWith('NHL STREAMS 2026') || txt.includes('WATCH LIVE REDDIT NHL STREAMS')) {
                             el.style.setProperty('display', 'none', 'important');
                         }
                     });
 
-                    // 3. Sweep promotional banner images
-                    document.querySelectorAll('img, a').forEach(function(el) {
-                        var src = (el.src || el.href || '').toLowerCase();
-                        if (src.includes('aliexpress') || src.includes('banner') || src.includes('promo')) {
-                            var wrapper = el.closest('a, div[class*="banner"]') || el;
-                            wrapper.style.setProperty('display', 'none', 'important');
+                    // 4. Hide ESPN / NHL Network channel links directly if they are standalone channel tiles
+                    document.querySelectorAll('a, img').forEach(function(el) {
+                        var srcOrHref = ((el.src || '') + ' ' + (el.href || '') + ' ' + (el.alt || '')).toLowerCase();
+                        if (srcOrHref.includes('espn') || srcOrHref.includes('nhl-network') || srcOrHref.includes('nhl_network') || srcOrHref.includes('nhlnetwork')) {
+                            var tile = el.closest('a') || el;
+                            // Make sure we never hide a game card that has team logos
+                            var tileText = (tile.innerText || '').trim();
+                            if (tileText.length < 25) {
+                                tile.style.setProperty('display', 'none', 'important');
+                            }
+                        }
+                        if (srcOrHref.includes('aliexpress') || srcOrHref.includes('banner')) {
+                            var banner = el.closest('a, div[class*="banner"]') || el;
+                            banner.style.setProperty('display', 'none', 'important');
+                        }
+                    });
+
+                    // 5. Hide all long SEO paragraphs at the bottom of the page
+                    document.querySelectorAll('p').forEach(function(p) {
+                        var pText = (p.innerText || '').trim();
+                        if (pText.length > 90) {
+                            p.style.setProperty('display', 'none', 'important');
                         }
                     });
                 }
 
                 cleanDom();
 
-                // Attach a live MutationObserver so elements are hidden the instant they are added to the DOM
                 if (!window.__tvCleanupObserver && document.documentElement) {
                     window.__tvCleanupObserver = new MutationObserver(function() {
                         cleanDom();
@@ -542,15 +525,6 @@ class MainActivity : Activity() {
         setUpdateStatus("Checking...")
         val release = withContext(Dispatchers.IO) { fetchLatestRelease() }
 
-        val lastInstalledAssetId = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .getLong(KEY_LAST_ASSET_ID, -1L)
-
-        if (release.assetId != -1L && release.assetId == lastInstalledAssetId) {
-            setUpdateStatus("✓ Up to date")
-            toast("Already running the latest build (${release.tag}).")
-            return
-        }
-
         val apkUrl = release.apkUrl
         if (apkUrl.isNullOrEmpty() || !apkUrl.startsWith("https://")) {
             setUpdateStatus("No APK")
@@ -570,7 +544,6 @@ class MainActivity : Activity() {
             return
         }
 
-        pendingAssetId = release.assetId
         setUpdateStatus("Installing...")
         withContext(Dispatchers.IO) { commitInstall(apk) }
     }
@@ -726,12 +699,6 @@ class MainActivity : Activity() {
                     }
                 }
                 PackageInstaller.STATUS_SUCCESS -> {
-                    if (pendingAssetId != -1L) {
-                        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                            .edit()
-                            .putLong(KEY_LAST_ASSET_ID, pendingAssetId)
-                            .apply()
-                    }
                     setUpdateStatus("✓ Updated")
                     toast("Update installed!")
                 }
