@@ -23,21 +23,28 @@ import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.CookieManager
+import android.webkit.GeolocationPermissions
+import android.webkit.PermissionRequest
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
+import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.content.ContextCompat
+import androidx.core.content.IntentCompat
 import androidx.core.content.pm.PackageInfoCompat
+import androidx.webkit.WebSettingsCompat
+import androidx.webkit.WebViewFeature
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -64,18 +71,25 @@ class MainActivity : Activity() {
         private const val ACTION_INSTALL_STATUS = "com.universal.app.INSTALL_STATUS"
         private const val MAX_APK_BYTES = 200L * 1024 * 1024
 
-        private val AD_KEYWORDS = listOf(
+        // Strict allowlist for top-level page navigation
+        private val ALLOWED_TOP_LEVEL_HOSTS = setOf(
+            "nhlstreams.io",
+            "www.nhlstreams.io"
+        )
+
+        private val AD_AND_CHAT_KEYWORDS = listOf(
             "doubleclick", "googlesyndication", "adservice", "popads", "popcash",
             "propellerads", "adsterra", "exoclick", "juicyads", "clickadu",
             "hilltopads", "taboola", "outbrain", "histats", "realsrv.com",
-            "onclkds.com", "aliexpress"
+            "onclkds.com", "aliexpress", "chatango", "twitch.tv/embed",
+            "tlk.io", "minnit.chat", "rumble.com/chat", "cbox.ws", "disqus"
         )
     }
 
     private data class Release(
         val tag: String,
-        val assetId: Long,
-        val apkUrl: String?
+        val apkUrl: String?,
+        val sha256Url: String?
     )
 
     private lateinit var rootLayout: FrameLayout
@@ -107,26 +121,35 @@ class MainActivity : Activity() {
             )
         }
 
-        topNavBar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
+        // Scrollable top bar so all Fire TV remote helper buttons fit on any screen size
+        val topScroll = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
             setBackgroundColor(Color.parseColor("#0F172A"))
-            setPadding(20, 8, 20, 8)
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             )
         }
 
+        topNavBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(16, 8, 16, 8)
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        }
+
         val titleLabel = TextView(this).apply {
-            text = "🏒 NHLStreams"
+            text = "🏒 NHL"
             setTextColor(Color.parseColor("#38BDF8"))
             typeface = Typeface.DEFAULT_BOLD
             textSize = 14f
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            setPadding(8, 0, 16, 0)
         }
 
-        val homeBtn = createNavButton("🏠 Schedule") {
+        val homeBtn = createNavButton("🏠 Games") {
             val current = webView.url?.trimEnd('/') ?: ""
             val target = START_URL.trimEnd('/')
             if (current.equals(target, ignoreCase = true)) {
@@ -135,6 +158,19 @@ class MainActivity : Activity() {
             } else {
                 webView.loadUrl(START_URL)
             }
+        }
+
+        // Fire TV Remote Helpers: Cycle LINK 1 / LIVE 2 / LINK 3 even if the video iframe traps focus
+        val prevLinkBtn = createNavButton("⏮ Link") {
+            cycleStreamSource(-1)
+        }
+
+        val nextLinkBtn = createNavButton("⏭ Link") {
+            cycleStreamSource(1)
+        }
+
+        val fullscreenBtn = createNavButton("⛶ Full") {
+            triggerVideoFullscreen()
         }
 
         val reloadBtn = createNavButton("🔄 Reload") {
@@ -147,8 +183,12 @@ class MainActivity : Activity() {
 
         topNavBar.addView(titleLabel)
         topNavBar.addView(homeBtn)
+        topNavBar.addView(prevLinkBtn)
+        topNavBar.addView(nextLinkBtn)
+        topNavBar.addView(fullscreenBtn)
         topNavBar.addView(reloadBtn)
         topNavBar.addView(updateBtn)
+        topScroll.addView(topNavBar)
 
         webView = WebView(this).apply {
             setBackgroundColor(Color.parseColor("#0B0F19"))
@@ -162,7 +202,7 @@ class MainActivity : Activity() {
             )
         }
 
-        contentColumn.addView(topNavBar)
+        contentColumn.addView(topScroll)
         contentColumn.addView(webView)
 
         fullscreenContainer = FrameLayout(this).apply {
@@ -201,12 +241,18 @@ class MainActivity : Activity() {
             textSize = 12f
             typeface = Typeface.DEFAULT_BOLD
             isFocusable = true
-            setPadding(24, 6, 24, 6)
+            isFocusableInTouchMode = false
+            setPadding(20, 6, 20, 6)
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply {
-                leftMargin = 12
+                leftMargin = 10
+            }
+            setOnFocusChangeListener { v, hasFocus ->
+                v.setBackgroundColor(
+                    if (hasFocus) Color.parseColor("#2563EB") else Color.parseColor("#1E293B")
+                )
             }
             setOnClickListener { onClick() }
         }
@@ -218,6 +264,7 @@ class MainActivity : Activity() {
             unregisterReceiver(installStatusReceiver)
         } catch (_: IllegalArgumentException) {
         }
+        clearWebViewData()
         if (webView.parent != null) {
             contentColumn.removeView(webView)
             webView.destroy()
@@ -225,19 +272,39 @@ class MainActivity : Activity() {
         super.onDestroy()
     }
 
-    private fun isAdUrl(url: String): Boolean {
-        val lower = url.lowercase()
-        return AD_KEYWORDS.any { lower.contains(it) }
+    private fun clearWebViewData() {
+        try {
+            CookieManager.getInstance().removeAllCookies(null)
+            CookieManager.getInstance().flush()
+            WebStorage.getInstance().deleteAllData()
+            webView.clearCache(true)
+            webView.clearHistory()
+        } catch (_: Exception) {
+        }
     }
+
+    private fun isBlockedUrl(url: String): Boolean {
+        val lower = url.lowercase()
+        return AD_AND_CHAT_KEYWORDS.any { lower.contains(it) }
+    }
+
+    private fun isAllowedTopLevelHost(host: String?): Boolean {
+        val clean = host?.lowercase() ?: return false
+        return ALLOWED_TOP_LEVEL_HOSTS.any { clean == it || clean.endsWith(".$it") }
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Hardened WebView Setup (Scope Item #3)
+    // ---------------------------------------------------------------------------------------------
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupWebView() {
         with(webView.settings) {
             javaScriptEnabled = true
             domStorageEnabled = true
-            databaseEnabled = true
+            databaseEnabled = false
             mediaPlaybackRequiresUserGesture = false
-            mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+            mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
             allowFileAccess = false
             allowContentAccess = false
             useWideViewPort = true
@@ -246,9 +313,18 @@ class MainActivity : Activity() {
             javaScriptCanOpenWindowsAutomatically = false
         }
 
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.SAFE_BROWSING_ENABLE)) {
+            WebSettingsCompat.setSafeBrowsingEnabled(webView.settings, true)
+        }
+
         val cookieManager = CookieManager.getInstance()
         cookieManager.setAcceptCookie(true)
-        cookieManager.setAcceptThirdPartyCookies(webView, true)
+        cookieManager.setAcceptThirdPartyCookies(webView, false)
+
+        // Block all file downloads
+        webView.setDownloadListener { _, _, _, _, _ -> }
+
+        // Notice: No addJavascriptInterface is ever registered on this WebView.
 
         webView.webViewClient = object : WebViewClient() {
 
@@ -256,28 +332,41 @@ class MainActivity : Activity() {
                 view: WebView,
                 request: WebResourceRequest
             ): WebResourceResponse? {
-                if (isAdUrl(request.url.toString())) {
-                    return WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(ByteArray(0)))
+                if (isBlockedUrl(request.url.toString())) {
+                    return WebResourceResponse(
+                        "text/plain",
+                        "utf-8",
+                        ByteArrayInputStream(ByteArray(0))
+                    )
                 }
                 return super.shouldInterceptRequest(view, request)
             }
 
-            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+            override fun shouldOverrideUrlLoading(
+                view: WebView,
+                request: WebResourceRequest
+            ): Boolean {
                 val uri = request.url
                 val fullUrl = uri.toString()
                 val scheme = uri.scheme?.lowercase() ?: ""
 
-                if (scheme != "http" && scheme != "https") return true
-                if (isAdUrl(fullUrl)) return true
+                // Strictly HTTPS only
+                if (scheme != "https") return true
+                if (isBlockedUrl(fullUrl)) return true
+
+                // Top-level navigation is locked to the allowlisted host
+                if (request.isForMainFrame && !isAllowedTopLevelHost(uri.host)) {
+                    return true
+                }
 
                 return false
             }
 
             override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
                 super.onPageStarted(view, url, favicon)
+                // Do NOT inject scripts in onPageStarted (runs against old page). Only hide until commit.
                 webView.visibility = View.INVISIBLE
                 loadingSpinner.visibility = View.VISIBLE
-                injectCustomUiCleanup()
             }
 
             override fun onPageCommitVisible(view: WebView, url: String?) {
@@ -291,11 +380,13 @@ class MainActivity : Activity() {
                 webView.postDelayed({
                     loadingSpinner.visibility = View.GONE
                     webView.visibility = View.VISIBLE
-                    webView.requestFocus()
                 }, 100)
             }
 
-            override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+            override fun onRenderProcessGone(
+                view: WebView,
+                detail: RenderProcessGoneDetail
+            ): Boolean {
                 contentColumn.removeView(webView)
                 webView.destroy()
                 recreate()
@@ -305,8 +396,24 @@ class MainActivity : Activity() {
 
         webView.webChromeClient = object : WebChromeClient() {
             override fun onCreateWindow(
-                view: WebView?, isDialog: Boolean, isUserGesture: Boolean, resultMsg: android.os.Message?
+                view: WebView?,
+                isDialog: Boolean,
+                isUserGesture: Boolean,
+                resultMsg: android.os.Message?
             ): Boolean = false
+
+            // Deny all camera/mic/media permission prompts
+            override fun onPermissionRequest(request: PermissionRequest?) {
+                request?.deny()
+            }
+
+            // Deny all geolocation prompts
+            override fun onGeolocationPermissionsShowPrompt(
+                origin: String?,
+                callback: GeolocationPermissions.Callback?
+            ) {
+                callback?.invoke(origin, false, false)
+            }
 
             override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
                 if (customView != null) {
@@ -334,14 +441,66 @@ class MainActivity : Activity() {
                 customViewCallback?.onCustomViewHidden()
                 customViewCallback = null
                 contentColumn.visibility = View.VISIBLE
-                webView.requestFocus()
             }
         }
     }
 
+    // ---------------------------------------------------------------------------------------------
+    // Fire TV Remote Helpers (Switch Stream Links & Fullscreen from Top Bar)
+    // ---------------------------------------------------------------------------------------------
+
+    private fun cycleStreamSource(direction: Int) {
+        val js = """
+            (function() {
+                var tabs = Array.from(document.querySelectorAll('[data-tv-stream-tab="1"]'));
+                if (tabs.length === 0) return "No stream tabs found on this page";
+                var activeIdx = tabs.findIndex(function(el) {
+                    return el === document.activeElement ||
+                           el.classList.contains('active') ||
+                           el.getAttribute('aria-selected') === 'true' ||
+                           el.dataset.tvSelected === '1';
+                });
+                var nextIdx = activeIdx + ($direction);
+                if (nextIdx < 0) nextIdx = tabs.length - 1;
+                if (nextIdx >= tabs.length) nextIdx = 0;
+                tabs.forEach(function(t) { t.dataset.tvSelected = '0'; });
+                var target = tabs[nextIdx];
+                target.dataset.tvSelected = '1';
+                target.focus();
+                target.click();
+                return (target.innerText || 'Stream').trim();
+            })();
+        """.trimIndent()
+        webView.evaluateJavascript(js) { result ->
+            val clean = result?.trim('"') ?: ""
+            if (clean.isNotEmpty() && clean != "null") {
+                toast("Switched to: $clean")
+            }
+        }
+    }
+
+    private fun triggerVideoFullscreen() {
+        val js = """
+            (function() {
+                // Click the page's Full Screen button if present
+                var btns = Array.from(document.querySelectorAll('button, a, div, span'));
+                for (var i = 0; i < btns.length; i++) {
+                    var t = (btns[i].innerText || '').trim().toUpperCase();
+                    if (t === 'FULL SCREEN' || t === 'FULLSCREEN') {
+                        btns[i].click();
+                        return;
+                    }
+                }
+                var v = document.querySelector('video') || document.querySelector('iframe[src*="player"], iframe[src*="embed"], iframe');
+                if (v && v.requestFullscreen) v.requestFullscreen();
+            })();
+        """.trimIndent()
+        webView.evaluateJavascript(js, null)
+    }
+
     /**
-     * Precisely hides site headers, "Buy Plan", "Share", "LIVE CHANNELS" + its 2 logo boxes,
-     * and the bottom SEO article text WITHOUT touching the "TODAY NHL MATCHUP" game list.
+     * Removes right-side chat, ads, "Buy Plan", "LIVE CHANNELS", and makes all game cards and
+     * stream source buttons (LINK 1 / LIVE 2) D-pad navigable with a throttled MutationObserver.
      */
     private fun injectCustomUiCleanup() {
         val js = """
@@ -352,7 +511,7 @@ class MainActivity : Activity() {
                     var style = document.createElement('style');
                     style.id = 'custom-tv-style';
                     style.innerHTML = `
-                        /* 1. Hide site top navbar, footer, buy-plan, premium, and share buttons */
+                        /* 1. Hide site headers, navbars, footers, buy-plan, premium, and share boxes */
                         header, nav, .navbar, .site-header, .header-main,
                         [class*="buy-plan"], [class*="buy_plan"], [class*="buyplan"],
                         [class*="premium"], [class*="share"], .social-share,
@@ -360,7 +519,21 @@ class MainActivity : Activity() {
                             display: none !important;
                         }
 
-                        /* 2. Hide ad banners & AliExpress promos */
+                        /* 2. Remove Right-Side Chat Box, Chat Iframes, & Chat Sidebars completely */
+                        #chat, .chat, [id*="chat-"], [id*="-chat"], [class*="chat-box"],
+                        [class*="chat_box"], [class*="chatbox"], [class*="chat-container"],
+                        [class*="chat-sidebar"], [class*="chat-panel"], [class*="chat-wrapper"],
+                        [class*="live-chat"], [id*="live-chat"],
+                        aside[class*="chat"], iframe[src*="chat"], iframe[id*="chat"],
+                        iframe[class*="chat"] {
+                            display: none !important;
+                            width: 0 !important;
+                            height: 0 !important;
+                            max-width: 0 !important;
+                            overflow: hidden !important;
+                        }
+
+                        /* 3. Hide ad banners & AliExpress promos */
                         img[src*="aliexpress"], a[href*="aliexpress"],
                         [class*="banner"], [id*="banner"],
                         [class*="advert"], [id*="advert"],
@@ -372,31 +545,57 @@ class MainActivity : Activity() {
                             overflow: hidden !important;
                         }
 
-                        /* 3. High-visibility focus ring for Fire TV D-pad navigation */
+                        /* 4. High-visibility focus ring for Fire TV D-pad navigation */
                         a:focus, button:focus, [tabindex]:focus {
-                            outline: 3px solid #38BDF8 !important;
-                            outline-offset: 2px !important;
+                            outline: 4px solid #38BDF8 !important;
+                            outline-offset: 3px !important;
                             background-color: #2563EB !important;
                             color: #FFFFFF !important;
+                            transform: scale(1.02);
+                            z-index: 9999 !important;
                         }
                     `;
                     (document.head || document.documentElement).appendChild(style);
                 }
 
+                // Enable Fire TV D-pad Center / Enter key to click focused elements
+                if (!window.__tvKeyHandlerInstalled) {
+                    window.__tvKeyHandlerInstalled = true;
+                    document.addEventListener('keydown', function(e) {
+                        if (e.key === 'Enter' || e.keyCode === 13 || e.keyCode === 23 || e.keyCode === 66) {
+                            var active = document.activeElement;
+                            if (active && active !== document.body && active.tagName !== 'IFRAME') {
+                                e.preventDefault();
+                                active.click();
+                            }
+                        }
+                    }, true);
+                }
+
                 function cleanDom() {
-                    // 1. Hide "Buy Plan", "Share", "Settings", "Premium" buttons & badges
-                    document.querySelectorAll('a, button, span, div').forEach(function(el) {
+                    // 1. Hide "Buy Plan", "Share", "Settings", "Premium" & Remove Chat panels by text/heading
+                    document.querySelectorAll('a, button, span, div, aside, section').forEach(function(el) {
+                        var clsId = ((el.className || '') + ' ' + (el.id || '')).toLowerCase();
+                        if (/\b(chat|chatbox|chat-room|livechat|right-sidebar)\b/.test(clsId)) {
+                            if (!el.querySelector('video') && !el.innerText.includes('LINK 1')) {
+                                el.style.setProperty('display', 'none', 'important');
+                                return;
+                            }
+                        }
+
                         if (el.children.length > 3) return;
                         var txt = (el.innerText || '').trim().toLowerCase();
-                        if (txt === 'buy plan' || txt === 'share' || txt === 'settings' || txt === 'premium') {
-                            var btn = el.closest('button, a') || el;
+                        if (txt === 'buy plan' || txt === 'share' || txt === 'settings' || txt === 'premium' || txt === 'live chat' || txt === 'chat') {
+                            var btn = el.closest('button, a, aside') || el;
                             btn.style.setProperty('display', 'none', 'important');
                         }
 
-                        // Enlarge LINK 1 / LIVE 2 stream source tabs for remote navigation
-                        if (/^(link|live|stream|feed|server)\s*\d+$/i.test(txt)) {
+                        // Make LINK 1 / LIVE 2 stream source tabs D-pad focusable & tagged for Prev/Next buttons
+                        if (/^(link|live|stream|feed|server|hd|sd)\s*\d*$/i.test(txt)) {
                             var clickTarget = el.closest('a, button, li') || el;
                             clickTarget.setAttribute('tabindex', '0');
+                            clickTarget.setAttribute('role', 'button');
+                            clickTarget.setAttribute('data-tv-stream-tab', '1');
                             clickTarget.style.padding = '12px 18px';
                             clickTarget.style.margin = '4px';
                             clickTarget.style.background = '#1E293B';
@@ -404,18 +603,35 @@ class MainActivity : Activity() {
                             clickTarget.style.border = '2px solid #38BDF8';
                             clickTarget.style.borderRadius = '8px';
                             clickTarget.style.fontWeight = 'bold';
+                            clickTarget.style.display = 'inline-block';
                         }
                     });
 
-                    // 2. Hide ONLY the "LIVE CHANNELS" heading and its ESPN / NHL Network logo row
-                    //    (Never hide siblings if they contain matchup cards!)
+                    // 2. Prevent video iframes from trapping Fire TV D-pad focus so remote can navigate page freely
+                    document.querySelectorAll('iframe').forEach(function(ifr) {
+                        var src = (ifr.src || '').toLowerCase();
+                        if (src.includes('chat') || src.includes('tlk.io') || src.includes('twitch') || src.includes('cbox')) {
+                            ifr.remove();
+                        } else {
+                            // Keep video iframe playable but prevent it from stealing D-pad focus trap
+                            ifr.setAttribute('tabindex', '-1');
+                        }
+                    });
+
+                    // 3. Make game matchup cards and "FULL SCREEN" button focusable with Fire TV remote
+                    document.querySelectorAll('a[href], button, [onclick]').forEach(function(item) {
+                        if (item.offsetParent !== null && !item.hasAttribute('tabindex')) {
+                            item.setAttribute('tabindex', '0');
+                        }
+                    });
+
+                    // 4. Hide ONLY "LIVE CHANNELS", its 2 channel logos, and bottom SEO text
                     document.querySelectorAll('h1, h2, h3, h4, h5, div, span, p').forEach(function(el) {
                         if (el.children.length > 2) return;
                         var txt = (el.innerText || '').trim().toUpperCase();
 
                         if (txt === 'LIVE CHANNELS') {
                             el.style.setProperty('display', 'none', 'important');
-                            // Check ONLY the immediate next element: if it's the small 2-logo box (and NOT the matchup list), hide it
                             var nextEl = el.nextElementSibling;
                             if (nextEl) {
                                 var nextTxt = (nextEl.innerText || '').toUpperCase();
@@ -425,20 +641,16 @@ class MainActivity : Activity() {
                             }
                         }
 
-                        // 3. Hide the bottom SEO article heading ("NHL STREAMS 2026 | WATCH LIVE...")
                         if (txt.startsWith('NHL STREAMS 2026') || txt.includes('WATCH LIVE REDDIT NHL STREAMS')) {
                             el.style.setProperty('display', 'none', 'important');
                         }
                     });
 
-                    // 4. Hide ESPN / NHL Network channel links directly if they are standalone channel tiles
                     document.querySelectorAll('a, img').forEach(function(el) {
                         var srcOrHref = ((el.src || '') + ' ' + (el.href || '') + ' ' + (el.alt || '')).toLowerCase();
                         if (srcOrHref.includes('espn') || srcOrHref.includes('nhl-network') || srcOrHref.includes('nhl_network') || srcOrHref.includes('nhlnetwork')) {
                             var tile = el.closest('a') || el;
-                            // Make sure we never hide a game card that has team logos
-                            var tileText = (tile.innerText || '').trim();
-                            if (tileText.length < 25) {
+                            if ((tile.innerText || '').trim().length < 25) {
                                 tile.style.setProperty('display', 'none', 'important');
                             }
                         }
@@ -448,10 +660,8 @@ class MainActivity : Activity() {
                         }
                     });
 
-                    // 5. Hide all long SEO paragraphs at the bottom of the page
                     document.querySelectorAll('p').forEach(function(p) {
-                        var pText = (p.innerText || '').trim();
-                        if (pText.length > 90) {
+                        if ((p.innerText || '').trim().length > 90) {
                             p.style.setProperty('display', 'none', 'important');
                         }
                     });
@@ -459,9 +669,15 @@ class MainActivity : Activity() {
 
                 cleanDom();
 
+                // Throttled MutationObserver (runs at most once every 400ms to keep Fire TV Stick fast)
                 if (!window.__tvCleanupObserver && document.documentElement) {
+                    var throttleTimer = null;
                     window.__tvCleanupObserver = new MutationObserver(function() {
-                        cleanDom();
+                        if (throttleTimer) return;
+                        throttleTimer = setTimeout(function() {
+                            throttleTimer = null;
+                            cleanDom();
+                        }, 400);
                     });
                     window.__tvCleanupObserver.observe(document.documentElement, {
                         childList: true,
@@ -485,7 +701,7 @@ class MainActivity : Activity() {
     }
 
     // ---------------------------------------------------------------------------------------------
-    // Public GitHub Auto-Updater
+    // Hardened Auto-Updater (Scope Item #2)
     // ---------------------------------------------------------------------------------------------
 
     private fun startUpdateCheck() {
@@ -525,10 +741,19 @@ class MainActivity : Activity() {
         setUpdateStatus("Checking...")
         val release = withContext(Dispatchers.IO) { fetchLatestRelease() }
 
+        // Skip download when latest release tag matches installed versionName
+        val installedVersionName = installedPackageInfo(0).versionName ?: ""
+        val latestVersionName = release.tag.removePrefix("v")
+        if (latestVersionName.isNotEmpty() && latestVersionName == installedVersionName) {
+            setUpdateStatus("✓ Up to date")
+            toast("Already on latest version ($installedVersionName).")
+            return
+        }
+
         val apkUrl = release.apkUrl
         if (apkUrl.isNullOrEmpty() || !apkUrl.startsWith("https://")) {
             setUpdateStatus("No APK")
-            toast("Release '${release.tag}' has no .apk asset attached.")
+            toast("Release '${release.tag}' has no HTTPS .apk asset attached.")
             return
         }
 
@@ -536,7 +761,13 @@ class MainActivity : Activity() {
         val apk = withContext(Dispatchers.IO) { download(apkUrl) }
 
         setUpdateStatus("Verifying...")
-        val problem = withContext(Dispatchers.IO) { verifyApk(apk) }
+        val expectedSha256 = release.sha256Url?.let { url ->
+            if (url.startsWith("https://")) {
+                withContext(Dispatchers.IO) { fetchSha256Text(url) }
+            } else null
+        }
+
+        val problem = withContext(Dispatchers.IO) { verifyApk(apk, expectedSha256) }
         if (problem != null) {
             apk.delete()
             setUpdateStatus("Rejected")
@@ -558,22 +789,52 @@ class MainActivity : Activity() {
         }
         try {
             val code = conn.responseCode
-            if (code != 200) throw IOException("GitHub API HTTP $code")
+            if (code == 403 || code == 429) {
+                throw IOException("GitHub API rate limit reached (HTTP $code). Please wait a few minutes and try again.")
+            }
+            if (code != 200) {
+                throw IOException("GitHub API returned HTTP $code")
+            }
 
             val json = JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
             val assets = json.getJSONArray("assets")
-            var assetId = -1L
             var apkUrl: String? = null
+            var sha256Url: String? = null
 
             for (i in 0 until assets.length()) {
                 val asset = assets.getJSONObject(i)
-                if (asset.getString("name").endsWith(".apk")) {
-                    assetId = asset.optLong("id", -1L)
-                    apkUrl = asset.optString("browser_download_url", null)
-                    break
+                val name = asset.getString("name")
+                val downloadUrl = asset.optString("browser_download_url", null)
+                if (name.endsWith(".apk")) {
+                    apkUrl = downloadUrl
+                } else if (name.endsWith(".sha256")) {
+                    sha256Url = downloadUrl
                 }
             }
-            return Release(json.optString("tag_name", "latest"), assetId, apkUrl)
+            return Release(json.optString("tag_name", ""), apkUrl, sha256Url)
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    private fun fetchSha256Text(url: String): String? {
+        val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            instanceFollowRedirects = true
+            setRequestProperty("User-Agent", "Android-Updater")
+            connectTimeout = 10_000
+            readTimeout = 10_000
+        }
+        return try {
+            if (conn.responseCode in 200..299) {
+                conn.inputStream.bufferedReader().use { it.readText() }
+                    .trim()
+                    .split(Regex("\\s+"))
+                    .firstOrNull()
+                    ?.lowercase()
+            } else null
+        } catch (_: Exception) {
+            null
         } finally {
             conn.disconnect()
         }
@@ -588,7 +849,11 @@ class MainActivity : Activity() {
             readTimeout = 30_000
         }
         try {
-            if (conn.responseCode !in 200..299) throw IOException("Download HTTP ${conn.responseCode}")
+            val code = conn.responseCode
+            if (code == 403 || code == 429) {
+                throw IOException("GitHub download rate limit reached (HTTP $code). Try again shortly.")
+            }
+            if (code !in 200..299) throw IOException("Download HTTP $code")
             val target = File(cacheDir, "update.apk").apply { delete() }
             conn.inputStream.use { input ->
                 target.outputStream().use { output ->
@@ -598,7 +863,7 @@ class MainActivity : Activity() {
                         val n = input.read(buffer)
                         if (n < 0) break
                         total += n
-                        if (total > MAX_APK_BYTES) throw IOException("APK too large")
+                        if (total > MAX_APK_BYTES) throw IOException("APK exceeds size limit")
                         output.write(buffer, 0, n)
                     }
                 }
@@ -609,16 +874,37 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun fileSha256(file: File): String {
+        val md = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buf = ByteArray(64 * 1024)
+            while (true) {
+                val n = input.read(buf)
+                if (n < 0) break
+                md.update(buf, 0, n)
+            }
+        }
+        return md.digest().joinToString("") { "%02x".format(it) }
+    }
+
     @Suppress("DEPRECATION")
-    private fun verifyApk(apk: File): String? {
+    private fun verifyApk(apk: File, expectedSha256: String?): String? {
+        if (!expectedSha256.isNullOrEmpty()) {
+            val actualSha256 = fileSha256(apk)
+            if (!actualSha256.equals(expectedSha256, ignoreCase = true)) {
+                return "APK SHA-256 checksum mismatch."
+            }
+        }
+
         val pm = packageManager
         val archive = pm.getPackageArchiveInfo(apk.path, PackageManager.GET_SIGNING_CERTIFICATES)
             ?: return "Downloaded file isn't a valid APK."
         if (archive.packageName != packageName) return "Update is for a different package ($packageName)."
 
         val installed = installedPackageInfo(PackageManager.GET_SIGNING_CERTIFICATES)
-        if (PackageInfoCompat.getLongVersionCode(archive) < PackageInfoCompat.getLongVersionCode(installed)) {
-            return "Update versionCode is older than the installed version."
+        // Strict <= check: reject updates whose versionCode is equal or lower
+        if (PackageInfoCompat.getLongVersionCode(archive) <= PackageInfoCompat.getLongVersionCode(installed)) {
+            return "Update isn't newer than the installed version."
         }
 
         var archiveSigners = signerDigests(archive)
@@ -682,12 +968,7 @@ class MainActivity : Activity() {
         override fun onReceive(context: Context, intent: Intent) {
             when (intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)) {
                 PackageInstaller.STATUS_PENDING_USER_ACTION -> {
-                    val confirm = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        intent.getParcelableExtra(Intent.EXTRA_INTENT, Intent::class.java)
-                    } else {
-                        @Suppress("DEPRECATION")
-                        intent.getParcelableExtra(Intent.EXTRA_INTENT)
-                    }
+                    val confirm = IntentCompat.getParcelableExtra(intent, Intent.EXTRA_INTENT, Intent::class.java)
                     if (confirm != null) {
                         confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                         try {
@@ -700,7 +981,19 @@ class MainActivity : Activity() {
                 }
                 PackageInstaller.STATUS_SUCCESS -> {
                     setUpdateStatus("✓ Updated")
-                    toast("Update installed!")
+                    toast("Update installed! You can now disable 'Install unknown apps' in Settings.")
+                    // Scope Item #4: Prompt user to turn "Install unknown apps" back off after update
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        try {
+                            startActivity(
+                                Intent(
+                                    Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                    Uri.parse("package:$packageName")
+                                )
+                            )
+                        } catch (_: ActivityNotFoundException) {
+                        }
+                    }
                 }
                 else -> {
                     setUpdateStatus("Failed")
