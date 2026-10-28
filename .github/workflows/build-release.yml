@@ -1,0 +1,88 @@
+name: Build and Release APK
+
+on:
+  push:
+    branches:
+      - main
+      - master
+
+# Default minimal permissions; write access is granted only to the release job
+permissions:
+  contents: read
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.0
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@f29f5a9dfa6b0ed6ab5ae5da3febf3ec86bde2dd # v4.3.1
+        with:
+          gradle-version: '8.7'
+
+      - name: Build Unsigned Release APK with Dynamic Version
+        run: |
+          gradle assembleRelease \
+            -PversionCode=${{ github.run_number }} \
+            -PversionName=1.0.${{ github.run_number }}
+
+      - name: Decode Secret Keystore and Sign Release APK
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "Error: KEYSTORE_BASE64 secret is not configured in repository settings."
+            exit 1
+          fi
+
+          echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.jks"
+
+          BUILD_TOOLS_DIR=$(ls -d "$ANDROID_HOME/build-tools/"* | sort -V | tail -n 1)
+          ZIPALIGN="$BUILD_TOOLS_DIR/zipalign"
+          APKSIGNER="$BUILD_TOOLS_DIR/apksigner"
+
+          UNSIGNED_APK=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          ALIGNED_APK="app/build/outputs/apk/release/app-release.apk"
+
+          if [ "$UNSIGNED_APK" != "$ALIGNED_APK" ]; then
+            "$ZIPALIGN" -p -f -v 4 "$UNSIGNED_APK" "$ALIGNED_APK"
+          fi
+
+          "$APKSIGNER" sign \
+            --ks "$RUNNER_TEMP/release.jks" \
+            --ks-pass env:KEYSTORE_PASSWORD \
+            --key-pass env:KEY_PASSWORD \
+            --ks-key-alias "$KEY_ALIAS" \
+            "$ALIGNED_APK"
+
+          "$APKSIGNER" verify --print-certs "$ALIGNED_APK"
+
+          sha256sum "$ALIGNED_APK" | awk '{print $1}' > "${ALIGNED_APK}.sha256"
+
+      - name: Shred Temporary Keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release.jks"
+
+      - name: Create GitHub Release and Upload Signed APK + Checksum
+        uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda # v2.2.1
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: NHLStreams v1.0.${{ github.run_number }}
+          files: |
+            app/build/outputs/apk/release/app-release.apk
+            app/build/outputs/apk/release/app-release.apk.sha256
+          make_latest: true
