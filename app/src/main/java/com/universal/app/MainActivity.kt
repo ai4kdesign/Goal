@@ -55,9 +55,7 @@ import java.security.MessageDigest
 class MainActivity : Activity() {
 
     companion object {
-        // Set your default starting portal URL here
         private const val START_URL = "https://nhlstreams.io/"
-"
 
         private const val GITHUB_RELEASE_API =
             "https://api.github.com/repos/dspirovski-design/Goal/releases/latest"
@@ -110,7 +108,6 @@ class MainActivity : Activity() {
             )
         }
 
-        // Compact native top bar for Fire TV / phone navigation
         topNavBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -123,7 +120,7 @@ class MainActivity : Activity() {
         }
 
         val titleLabel = TextView(this).apply {
-            text = "🏒 Stream Portal"
+            text = "🏒 NHLStreams"
             setTextColor(Color.parseColor("#38BDF8"))
             typeface = Typeface.DEFAULT_BOLD
             textSize = 14f
@@ -322,10 +319,6 @@ class MainActivity : Activity() {
         }
     }
 
-    /**
-     * Injects CSS and D-pad focus helpers so page headers/upsell buttons are hidden
-     * and source/link selector tabs are enlarged for easy remote navigation.
-     */
     private fun injectCustomUiCleanup() {
         val js = """
             (function() {
@@ -335,14 +328,12 @@ class MainActivity : Activity() {
                     var style = document.createElement('style');
                     style.id = 'custom-tv-style';
                     style.innerHTML = `
-                        /* 1. Hide site navigation headers, settings bars, and promotional/share rows */
                         header, nav, .navbar, .site-header, .header-main,
                         [class*="buy-plan"], [class*="premium"], [class*="share"],
                         .social-share, footer {
                             display: none !important;
                         }
 
-                        /* 2. Make stream link/tab selectors larger, high-contrast, and easy to click on TV */
                         a[href*="link"], [class*="link-item"], [class*="stream-tab"], .nav-tabs a, .nav-pills a {
                             display: inline-block !important;
                             padding: 12px 18px !important;
@@ -356,7 +347,6 @@ class MainActivity : Activity() {
                             text-decoration: none !important;
                         }
 
-                        /* 3. High-visibility focus ring for Fire TV D-pad navigation */
                         a:focus, button:focus, [tabindex]:focus {
                             outline: 3px solid #38BDF8 !important;
                             outline-offset: 2px !important;
@@ -367,7 +357,6 @@ class MainActivity : Activity() {
                     if (document.head) document.head.appendChild(style);
                 }
 
-                // Strip promotional buttons by text match ("Buy Plan", "Share", "Settings")
                 function cleanDomElements() {
                     document.querySelectorAll('a, button, div, span').forEach(function(el) {
                         if (el.children.length > 2) return;
@@ -378,7 +367,6 @@ class MainActivity : Activity() {
                             else el.style.display = 'none';
                         }
 
-                        // Ensure stream source links (e.g., "LINK 1", "LIVE 2") are D-pad focusable
                         if (/^(link|live|stream|feed|server)\s*\d*$/i.test(txt)) {
                             var clickTarget = el.closest('a, button, li') || el;
                             clickTarget.setAttribute('tabindex', '0');
@@ -410,10 +398,6 @@ class MainActivity : Activity() {
     private fun toast(message: String) {
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
-
-    // ---------------------------------------------------------------------------------------------
-    // Public GitHub Auto-Updater
-    // ---------------------------------------------------------------------------------------------
 
     private fun startUpdateCheck() {
         if (updateJob?.isActive == true) return
