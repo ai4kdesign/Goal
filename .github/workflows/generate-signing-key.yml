@@ -1,0 +1,73 @@
+name: Generate Signing Key (one-time)
+
+# Creates a new release signing key inside GitHub Actions and saves it straight into
+# repository secrets. The key and password are never printed, uploaded as an artifact,
+# or committed. Only the public certificate fingerprint is shown in the log.
+#
+# Needs a temporary repository secret SECRETS_ADMIN_TOKEN: a fine-grained personal access
+# token limited to this repo with "Secrets: Read and write". Delete it after this runs.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type REPLACE-KEY to create a new key. This overwrites any existing signing secrets."
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    if: ${{ inputs.confirm == 'REPLACE-KEY' }}
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.SECRETS_ADMIN_TOKEN }}
+      REPO: ${{ github.repository }}
+
+    steps:
+      - name: Check admin token
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::Add the SECRETS_ADMIN_TOKEN secret first (see SECURITY-FIXES.md)."
+            exit 1
+          fi
+
+      - name: Generate keystore and store it as secrets
+        run: |
+          set -euo pipefail
+          umask 077
+          WORK="$RUNNER_TEMP/keygen"
+          mkdir -p "$WORK"
+
+          # Random 32-character password, masked in case anything ever echoes it.
+          PASS="$(openssl rand -base64 48 | tr -dc 'A-Za-z0-9' | cut -c1-32)"
+          echo "::add-mask::$PASS"
+          export PASS
+
+          keytool -genkeypair \
+            -keystore "$WORK/release.jks" \
+            -storetype PKCS12 \
+            -alias release \
+            -keyalg RSA \
+            -keysize 4096 \
+            -validity 10000 \
+            -dname "CN=IceStream Hub Release" \
+            -storepass:env PASS \
+            -keypass:env PASS >/dev/null 2>&1
+
+          base64 -w 0 "$WORK/release.jks" > "$WORK/keystore.b64"
+
+          # Values go in through stdin, never as command-line arguments.
+          gh secret set KEYSTORE_BASE64  --repo "$REPO" < "$WORK/keystore.b64"
+          printf '%s' "$PASS"  | gh secret set KEYSTORE_PASSWORD --repo "$REPO"
+          printf '%s' "$PASS"  | gh secret set KEY_PASSWORD      --repo "$REPO"
+          printf '%s' release  | gh secret set KEY_ALIAS         --repo "$REPO"
+
+          echo "Signing secrets saved. Public certificate fingerprint (safe to share):"
+          keytool -list -v -keystore "$WORK/release.jks" -storepass:env PASS -alias release \
+            | grep -E "SHA256:" | head -n 1
+
+      - name: Delete temporary files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/keygen"
