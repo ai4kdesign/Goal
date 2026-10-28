@@ -66,7 +66,7 @@ class MainActivity : Activity() {
         private const val START_URL = "https://nhlstreams.io/"
 
         private const val GITHUB_RELEASE_API =
-            "https://api.github.com/repos/dspirovski-design/Goal/releases/latest"
+            "https://api.github.com/repos/ai4kdesign/Goal/releases/latest"
 
         private const val ACTION_INSTALL_STATUS = "com.universal.app.INSTALL_STATUS"
         private const val MAX_APK_BYTES = 200L * 1024 * 1024
@@ -761,10 +761,16 @@ class MainActivity : Activity() {
         val apk = withContext(Dispatchers.IO) { download(apkUrl) }
 
         setUpdateStatus("Verifying...")
-        val expectedSha256 = release.sha256Url?.let { url ->
-            if (url.startsWith("https://")) {
-                withContext(Dispatchers.IO) { fetchSha256Text(url) }
-            } else null
+        // Every release publishes a .sha256 file, so a missing or unreadable checksum is a failure.
+        val sha256Url = release.sha256Url
+        val expectedSha256 = if (!sha256Url.isNullOrEmpty() && sha256Url.startsWith("https://")) {
+            withContext(Dispatchers.IO) { fetchSha256Text(sha256Url) }
+        } else null
+        if (expectedSha256.isNullOrEmpty() || !Regex("^[0-9a-f]{64}$").matches(expectedSha256)) {
+            apk.delete()
+            setUpdateStatus("Rejected")
+            toast("Release '${release.tag}' has no valid SHA-256 checksum.")
+            return
         }
 
         val problem = withContext(Dispatchers.IO) { verifyApk(apk, expectedSha256) }
@@ -888,12 +894,9 @@ class MainActivity : Activity() {
     }
 
     @Suppress("DEPRECATION")
-    private fun verifyApk(apk: File, expectedSha256: String?): String? {
-        if (!expectedSha256.isNullOrEmpty()) {
-            val actualSha256 = fileSha256(apk)
-            if (!actualSha256.equals(expectedSha256, ignoreCase = true)) {
-                return "APK SHA-256 checksum mismatch."
-            }
+    private fun verifyApk(apk: File, expectedSha256: String): String? {
+        if (!fileSha256(apk).equals(expectedSha256, ignoreCase = true)) {
+            return "APK SHA-256 checksum mismatch."
         }
 
         val pm = packageManager
