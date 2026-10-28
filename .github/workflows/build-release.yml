@@ -33,15 +33,15 @@ jobs:
 
       - name: Verify or Bootstrap Release Keystore Secret
         env:
-          KEYSTORE_BASE64: \${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: |
-          if [ -z "\$KEYSTORE_BASE64" ]; then
+          if [ -z "$KEYSTORE_BASE64" ]; then
             echo "=================================================================="
             echo "FIRST-TIME SETUP: KEYSTORE_BASE64 secret is not set yet!"
             echo "Generating a fresh keystore now so you can copy it into Secrets..."
             echo "=================================================================="
             keytool -genkeypair -v \
-              -keystore "\$RUNNER_TEMP/bootstrap.jks" \
+              -keystore "$RUNNER_TEMP/bootstrap.jks" \
               -storetype PKCS12 \
               -keyalg RSA \
               -keysize 2048 \
@@ -58,24 +58,70 @@ jobs:
             echo "   - KEY_PASSWORD      = GoalSecurePass2026!"
             echo "   - KEYSTORE_BASE64   = (Copy the single line below between the markers)"
             echo "-------------------- COPY BELOW THIS LINE --------------------"
-            base64 -w 0 "\$RUNNER_TEMP/bootstrap.jks"
+            base64 -w 0 "$RUNNER_TEMP/bootstrap.jks"
             echo ""
             echo "-------------------- COPY ABOVE THIS LINE --------------------"
-            rm -f "\$RUNNER_TEMP/bootstrap.jks"
+            rm -f "$RUNNER_TEMP/bootstrap.jks"
             exit 1
           fi
 
-      - name: Build Unsigned Release APK with Dynamic Version
+      - name: Compute Monotonic Version Number
+        run: |
+          VER_CODE=$((100 + ${{ github.run_number }}))
+          echo "VER_CODE=$VER_CODE" >> $GITHUB_ENV
+          echo "VER_NAME=1.0.$VER_CODE" >> $GITHUB_ENV
+          echo "RELEASE_TAG=v1.0.$VER_CODE" >> $GITHUB_ENV
+          touch app/proguard-rules.pro
+
+      - name: Build Unsigned Release APK
         run: |
           gradle assembleRelease \
-            -PversionCode=\${{ github.run_number }} \
-            -PversionName=1.0.\${{ github.run_number }}
+            -PversionCode=${{ env.VER_CODE }} \
+            -PversionName=${{ env.VER_NAME }}
 
       - name: Decode Secret Keystore and Sign Release APK
         env:
-          KEYSTORE_BASE64: \${{ secrets.KEYSTORE_BASE64 }}
-          KEYSTORE_PASSWORD: \${{ secrets.KEYSTORE_PASSWORD }}
-          KEY_ALIAS: \${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: \${{ secrets.KEY_PASSWORD }}
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          echo "$KEYSTORE_BASE64" \vert{} tr -d '[:space:]' \vert{} base64 --decode > "$RUNNER_TEMP/release.
+          echo "$KEYSTORE_BASE64" | tr -d '[:space:]' | base64 --decode > "$RUNNER_TEMP/release.jks"
+
+          BUILD_TOOLS_DIR=$(ls -d "$ANDROID_HOME/build-tools/"* | sort -V | tail -n 1)
+          ZIPALIGN="$BUILD_TOOLS_DIR/zipalign"
+          APKSIGNER="$BUILD_TOOLS_DIR/apksigner"
+
+          UNSIGNED_APK=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          ALIGNED_APK="app/build/outputs/apk/release/app-release.apk"
+
+          if [ "$UNSIGNED_APK" != "$ALIGNED_APK" ]; then
+            "$ZIPALIGN" -p -f -v 4 "$UNSIGNED_APK" "$ALIGNED_APK"
+          fi
+
+          "$APKSIGNER" sign \
+            --ks "$RUNNER_TEMP/release.jks" \
+            --ks-pass env:KEYSTORE_PASSWORD \
+            --key-pass env:KEY_PASSWORD \
+            --ks-key-alias "$KEY_ALIAS" \
+            "$ALIGNED_APK"
+
+          "$APKSIGNER" verify --print-certs "$ALIGNED_APK"
+
+          sha256sum "$ALIGNED_APK" | awk '{print $1}' > "${ALIGNED_APK}.sha256"
+
+      - name: Shred Temporary Keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release.jks"
+
+      - name: Create GitHub Release and Upload Signed APK + Checksum
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete "${{ env.RELEASE_TAG }}" --cleanup-tag --yes || true
+          gh release create "${{ env.RELEASE_TAG }}" \
+            app/build/outputs/apk/release/app-release.apk \
+            app/build/outputs/apk/release/app-release.apk.sha256 \
+            --title "NHLStreams ${{ env.RELEASE_TAG }}" \
+            --notes "Automated hardened release build ${{ env.RELEASE_TAG }}" \
+            --latest
