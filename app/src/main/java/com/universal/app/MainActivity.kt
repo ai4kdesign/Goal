@@ -56,7 +56,8 @@ class MainActivity : Activity() {
 
     companion object {
         // Set your default starting portal URL here
-        private const val START_URL = "https://example.com/"
+        private const val START_URL = "https://nhlstreams.io/"
+"
 
         private const val GITHUB_RELEASE_API =
             "https://api.github.com/repos/dspirovski-design/Goal/releases/latest"
