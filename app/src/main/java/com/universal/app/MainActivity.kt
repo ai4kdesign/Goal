@@ -328,12 +328,27 @@ class MainActivity : Activity() {
                     var style = document.createElement('style');
                     style.id = 'custom-tv-style';
                     style.innerHTML = `
+                        /* 1. Hide site headers, navbars, footers, and share boxes */
                         header, nav, .navbar, .site-header, .header-main,
                         [class*="buy-plan"], [class*="premium"], [class*="share"],
                         .social-share, footer {
                             display: none !important;
                         }
 
+                        /* 2. Hide banner ad containers, sponsor boxes, and promo images */
+                        img[src*="aliexpress"], a[href*="aliexpress"], 
+                        [class*="banner"], [id*="banner"], 
+                        [class*="advert"], [id*="advert"],
+                        [class*="sponsor"], [id*="sponsor"],
+                        iframe[src*="ads"], ins.adsbygoogle {
+                            display: none !important;
+                            visibility: hidden !important;
+                            height: 0 !important;
+                            max-height: 0 !important;
+                            overflow: hidden !important;
+                        }
+
+                        /* 3. Style stream source tabs nicely for D-pad navigation */
                         a[href*="link"], [class*="link-item"], [class*="stream-tab"], .nav-tabs a, .nav-pills a {
                             display: inline-block !important;
                             padding: 12px 18px !important;
@@ -347,6 +362,7 @@ class MainActivity : Activity() {
                             text-decoration: none !important;
                         }
 
+                        /* 4. High-visibility focus ring for Fire TV remote */
                         a:focus, button:focus, [tabindex]:focus {
                             outline: 3px solid #38BDF8 !important;
                             outline-offset: 2px !important;
@@ -357,32 +373,20 @@ class MainActivity : Activity() {
                     if (document.head) document.head.appendChild(style);
                 }
 
-                function cleanDomElements() {
-                    document.querySelectorAll('a, button, div, span').forEach(function(el) {
-                        if (el.children.length > 2) return;
-                        var txt = (el.innerText || '').trim().toLowerCase();
-                        if (txt === 'buy plan' || txt === 'share' || txt === 'settings' || txt === 'premium') {
-                            var parentBtn = el.closest('button, a');
-                            if (parentBtn) parentBtn.style.display = 'none';
-                            else el.style.display = 'none';
-                        }
-
-                        if (/^(link|live|stream|feed|server)\s*\d*$/i.test(txt)) {
-                            var clickTarget = el.closest('a, button, li') || el;
-                            clickTarget.setAttribute('tabindex', '0');
-                            clickTarget.style.padding = '12px 18px';
-                            clickTarget.style.margin = '4px';
-                            clickTarget.style.background = '#1E293B';
-                            clickTarget.style.color = '#38BDF8';
-                            clickTarget.style.border = '2px solid #38BDF8';
-                            clickTarget.style.borderRadius = '8px';
-                            clickTarget.style.fontWeight = 'bold';
+                // Periodic DOM sweep to catch dynamically loaded banner images
+                function sweepAds() {
+                    document.querySelectorAll('img, a, div').forEach(function(el) {
+                        var src = el.src || el.href || '';
+                        if (typeof src === 'string' && (src.includes('aliexpress') || src.includes('banner') || src.includes('promo'))) {
+                            var target = el.closest('a, div[class*="banner"], div[style*="banner"]') || el;
+                            target.style.display = 'none';
                         }
                     });
                 }
 
-                cleanDomElements();
-                setTimeout(cleanDomElements, 1200);
+                sweepAds();
+                setTimeout(sweepAds, 1000);
+                setTimeout(sweepAds, 2500);
             })();
         """.trimIndent()
 
@@ -398,6 +402,10 @@ class MainActivity : Activity() {
     private fun toast(message: String) {
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
+
+    // ---------------------------------------------------------------------------------------------
+    // Public GitHub Auto-Updater
+    // ---------------------------------------------------------------------------------------------
 
     private fun startUpdateCheck() {
         if (updateJob?.isActive == true) return
