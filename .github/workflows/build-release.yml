@@ -31,37 +31,20 @@ jobs:
         with:
           gradle-version: '8.7'
 
-      - name: Verify or Bootstrap Release Keystore Secret
+      - name: Require Signing Secrets
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          if [ -z "$KEYSTORE_BASE64" ]; then
-            echo "=================================================================="
-            echo "FIRST-TIME SETUP: KEYSTORE_BASE64 secret is not set yet!"
-            echo "Generating a fresh keystore now so you can copy it into Secrets..."
-            echo "=================================================================="
-            keytool -genkeypair -v \
-              -keystore "$RUNNER_TEMP/bootstrap.jks" \
-              -storetype PKCS12 \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 10000 \
-              -alias app_release_key \
-              -dname "CN=NHLStreams Release,O=NHLStreams,C=CA" \
-              -storepass "GoalSecurePass2026!" \
-              -keypass "GoalSecurePass2026!"
-            echo ""
-            echo "1. Go to: Settings -> Secrets and variables -> Actions -> New repository secret"
-            echo "2. Create these 4 secrets:"
-            echo "   - KEY_ALIAS         = app_release_key"
-            echo "   - KEYSTORE_PASSWORD = GoalSecurePass2026!"
-            echo "   - KEY_PASSWORD      = GoalSecurePass2026!"
-            echo "   - KEYSTORE_BASE64   = (Copy the single line below between the markers)"
-            echo "-------------------- COPY BELOW THIS LINE --------------------"
-            base64 -w 0 "$RUNNER_TEMP/bootstrap.jks"
-            echo ""
-            echo "-------------------- COPY ABOVE THIS LINE --------------------"
-            rm -f "$RUNNER_TEMP/bootstrap.jks"
+          missing=""
+          [ -z "$KEYSTORE_BASE64" ] && missing="$missing KEYSTORE_BASE64"
+          [ -z "$KEYSTORE_PASSWORD" ] && missing="$missing KEYSTORE_PASSWORD"
+          [ -z "$KEY_ALIAS" ] && missing="$missing KEY_ALIAS"
+          [ -z "$KEY_PASSWORD" ] && missing="$missing KEY_PASSWORD"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing signing secrets:$missing. Run the 'Generate Signing Key (one-time)' workflow first."
             exit 1
           fi
 
