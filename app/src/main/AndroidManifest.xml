@@ -13,6 +13,9 @@
 
     <application
         android:label="NHLStreams"
+        android:icon="@drawable/ic_launcher"
+        android:roundIcon="@drawable/ic_launcher"
+        android:banner="@drawable/banner"
         android:allowBackup="false"
         android:usesCleartextTraffic="false"
         android:hardwareAccelerated="true"
