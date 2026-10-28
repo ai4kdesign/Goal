@@ -22,7 +22,6 @@ import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.CookieManager
-import android.webkit.JavascriptInterface
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -34,6 +33,7 @@ import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ProgressBar
+import android.widget.TextView
 import android.widget.Toast
 import androidx.core.content.ContextCompat
 import androidx.core.content.pm.PackageInfoCompat
@@ -55,9 +55,8 @@ import java.security.MessageDigest
 class MainActivity : Activity() {
 
     companion object {
-        private const val ASSET_HOST = "appassets.androidplatform.net"
-        private const val APP_ORIGIN = "https://$ASSET_HOST"
-        private const val START_URL = "$APP_ORIGIN/assets/index.html"
+        // Set your default starting portal URL here
+        private const val START_URL = "https://example.com/"
 
         private const val GITHUB_RELEASE_API =
             "https://api.github.com/repos/dspirovski-design/Goal/releases/latest"
@@ -67,14 +66,10 @@ class MainActivity : Activity() {
         private const val KEY_LAST_ASSET_ID = "last_installed_asset_id"
         private const val MAX_APK_BYTES = 200L * 1024 * 1024
 
-        // Broad ad, tracker, and click-hijack domain blocklist
         private val AD_KEYWORDS = listOf(
             "doubleclick", "googlesyndication", "adservice", "popads", "popcash",
             "propellerads", "adsterra", "exoclick", "juicyads", "clickadu",
-            "hilltopads", "aliexpress", "bet365", "1xbet", "stake.com",
-            "casino", "betting", "adnxs", "taboola", "outbrain", "Histats",
-            "acint.net", "ero-advertising", "trafficjunky", "tsyndicate",
-            "realsrv.com", "clksite.com", "onclkds.com", "aftrk", "voluum"
+            "hilltopads", "taboola", "outbrain", "histats", "realsrv.com", "onclkds.com"
         )
     }
 
@@ -86,17 +81,14 @@ class MainActivity : Activity() {
 
     private lateinit var rootLayout: FrameLayout
     private lateinit var contentColumn: LinearLayout
-    private lateinit var backToHubBar: Button
+    private lateinit var topNavBar: LinearLayout
+    private lateinit var updateBtn: Button
     private lateinit var webView: WebView
     private lateinit var fullscreenContainer: FrameLayout
     private lateinit var loadingSpinner: ProgressBar
 
     private var customView: View? = null
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
-
-    // Stores the team names currently selected from the Hub scoreboard
-    private var targetAwayTeam: String = ""
-    private var targetHomeTeam: String = ""
 
     private val scope = MainScope()
     private var updateJob: Job? = null
@@ -117,20 +109,42 @@ class MainActivity : Activity() {
             )
         }
 
-        backToHubBar = Button(this).apply {
-            text = "← Back to IceStream Hub"
-            setTextColor(Color.parseColor("#F8FAFC"))
-            setBackgroundColor(Color.parseColor("#1E293B"))
+        // Compact native top bar for Fire TV / phone navigation
+        topNavBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setBackgroundColor(Color.parseColor("#0F172A"))
+            setPadding(20, 8, 20, 8)
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        }
+
+        val titleLabel = TextView(this).apply {
+            text = "🏒 Stream Portal"
+            setTextColor(Color.parseColor("#38BDF8"))
             typeface = Typeface.DEFAULT_BOLD
             textSize = 14f
-            visibility = View.GONE
-            isFocusable = true
-            setOnClickListener {
-                targetAwayTeam = ""
-                targetHomeTeam = ""
-                webView.loadUrl(START_URL)
-            }
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
+
+        val homeBtn = createNavButton("🏠 Games") {
+            webView.loadUrl(START_URL)
+        }
+
+        val reloadBtn = createNavButton("🔄 Reload") {
+            webView.reload()
+        }
+
+        updateBtn = createNavButton("⬇️ Update") {
+            startUpdateCheck()
+        }
+
+        topNavBar.addView(titleLabel)
+        topNavBar.addView(homeBtn)
+        topNavBar.addView(reloadBtn)
+        topNavBar.addView(updateBtn)
 
         webView = WebView(this).apply {
             setBackgroundColor(Color.parseColor("#0B0F19"))
@@ -144,7 +158,7 @@ class MainActivity : Activity() {
             )
         }
 
-        contentColumn.addView(backToHubBar)
+        contentColumn.addView(topNavBar)
         contentColumn.addView(webView)
 
         fullscreenContainer = FrameLayout(this).apply {
@@ -173,6 +187,25 @@ class MainActivity : Activity() {
 
         setupWebView()
         webView.loadUrl(START_URL)
+    }
+
+    private fun createNavButton(label: String, onClick: () -> Unit): Button {
+        return Button(this).apply {
+            text = label
+            setTextColor(Color.parseColor("#F8FAFC"))
+            setBackgroundColor(Color.parseColor("#1E293B"))
+            textSize = 12f
+            typeface = Typeface.DEFAULT_BOLD
+            isFocusable = true
+            setPadding(24, 6, 24, 6)
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                leftMargin = 12
+            }
+            setOnClickListener { onClick() }
+        }
     }
 
     override fun onDestroy() {
@@ -213,38 +246,15 @@ class MainActivity : Activity() {
         cookieManager.setAcceptCookie(true)
         cookieManager.setAcceptThirdPartyCookies(webView, true)
 
-        webView.addJavascriptInterface(Bridge(), "AndroidBridge")
-
         webView.webViewClient = object : WebViewClient() {
 
             override fun shouldInterceptRequest(
                 view: WebView,
                 request: WebResourceRequest
             ): WebResourceResponse? {
-                val uri = request.url
-                val fullUrl = uri.toString()
-                val host = uri.host?.lowercase() ?: ""
-
-                if (uri.scheme == "https" && host == ASSET_HOST && uri.path?.startsWith("/assets/") == true) {
-                    val assetPath = uri.path!!.removePrefix("/assets/")
-                    return try {
-                        val mime = when {
-                            assetPath.endsWith(".html") -> "text/html"
-                            assetPath.endsWith(".js") -> "application/javascript"
-                            assetPath.endsWith(".css") -> "text/css"
-                            else -> "application/octet-stream"
-                        }
-                        WebResourceResponse(mime, "utf-8", assets.open(assetPath))
-                    } catch (_: Exception) {
-                        null
-                    }
-                }
-
-                // Kill ad scripts, banners, and popup injectors at the network level
-                if (isAdUrl(fullUrl)) {
+                if (isAdUrl(request.url.toString())) {
                     return WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(ByteArray(0)))
                 }
-
                 return super.shouldInterceptRequest(view, request)
             }
 
@@ -252,21 +262,9 @@ class MainActivity : Activity() {
                 val uri = request.url
                 val fullUrl = uri.toString()
                 val scheme = uri.scheme?.lowercase() ?: ""
-                val host = uri.host?.lowercase() ?: ""
 
                 if (scheme != "http" && scheme != "https") return true
                 if (isAdUrl(fullUrl)) return true
-
-                // If top-level frame tries to redirect away to an unknown ad domain, block it!
-                if (request.isForMainFrame) {
-                    val allowedMainHosts = listOf(
-                        ASSET_HOST, "onhockey.tv", "nhlstreams.io", "nhlbite.com", "sportsurge.net"
-                    )
-                    if (allowedMainHosts.none { host == it || host.endsWith(".$it") }) {
-                        // Block top-level click-hijack redirects!
-                        return true
-                    }
-                }
 
                 return false
             }
@@ -275,14 +273,7 @@ class MainActivity : Activity() {
                 super.onPageFinished(view, url)
                 loadingSpinner.visibility = View.GONE
                 webView.visibility = View.VISIBLE
-
-                val isHome = url != null && url.startsWith(APP_ORIGIN)
-                backToHubBar.visibility = if (isHome) View.GONE else View.VISIBLE
-
-                if (!isHome && url != null) {
-                    injectStreamCleanerAndGameFinder()
-                }
-
+                injectCustomUiCleanup()
                 webView.requestFocus()
             }
 
@@ -331,110 +322,88 @@ class MainActivity : Activity() {
     }
 
     /**
-     * Strips website clutter/banners/chat and automatically locates & expands the selected NHL game.
+     * Injects CSS and D-pad focus helpers so page headers/upsell buttons are hidden
+     * and source/link selector tabs are enlarged for easy remote navigation.
      */
-    private fun injectStreamCleanerAndGameFinder() {
-        val away = JSONObject.quote(targetAwayTeam.lowercase())
-        val home = JSONObject.quote(targetHomeTeam.lowercase())
-
+    private fun injectCustomUiCleanup() {
         val js = """
             (function() {
-                // 1. Disable window.open and invisible full-screen click-hijack overlays
                 window.open = function() { return null; };
-                
-                var style = document.createElement('style');
-                style.innerHTML = `
-                    body { background: #0B0F19 !important; color: #F8FAFC !important; overflow-x: hidden !important; }
-                    img[src*="aliexpress"], a[href*="aliexpress"], iframe[src*="ads"], 
-                    .chat, #chat, [id*="chat"], [class*="banner"], [id*="banner"], 
-                    [class*="advert"], [id*="advert"] { display: none !important; }
-                `;
-                document.head.appendChild(style);
 
-                function cleanAndFindGame() {
-                    var awayTeam = $away;
-                    var homeTeam = $home;
-
-                    // Remove high z-index transparent click-jacking overlays
-                    document.querySelectorAll('div, a, ins').forEach(function(el) {
-                        var st = window.getComputedStyle(el);
-                        if ((st.position === 'fixed' || st.position === 'absolute') && parseInt(st.zIndex, 10) > 999) {
-                            if (!el.querySelector('video') && !el.querySelector('iframe')) {
-                                el.remove();
-                            }
+                if (!document.getElementById('custom-tv-style')) {
+                    var style = document.createElement('style');
+                    style.id = 'custom-tv-style';
+                    style.innerHTML = `
+                        /* 1. Hide site navigation headers, settings bars, and promotional/share rows */
+                        header, nav, .navbar, .site-header, .header-main,
+                        [class*="buy-plan"], [class*="premium"], [class*="share"],
+                        .social-share, footer {
+                            display: none !important;
                         }
-                    });
 
-                    // Auto-locate and click the specific NHL game row if team names were passed
-                    if (awayTeam || homeTeam) {
-                        var docs = [document];
-                        document.querySelectorAll('iframe').forEach(function(f) {
-                            try { if (f.contentDocument) docs.push(f.contentDocument); } catch(e) {}
-                        });
+                        /* 2. Make stream link/tab selectors larger, high-contrast, and easy to click on TV */
+                        a[href*="link"], [class*="link-item"], [class*="stream-tab"], .nav-tabs a, .nav-pills a {
+                            display: inline-block !important;
+                            padding: 12px 18px !important;
+                            margin: 6px 6px !important;
+                            font-size: 16px !important;
+                            font-weight: 800 !important;
+                            color: #F8FAFC !important;
+                            background-color: #1E293B !important;
+                            border: 2px solid #475569 !important;
+                            border-radius: 10px !important;
+                            text-decoration: none !important;
+                        }
 
-                        docs.forEach(function(doc) {
-                            var links = doc.querySelectorAll('a, tr, div.game, li');
-                            for (var i = 0; i < links.length; i++) {
-                                var txt = (links[i].innerText || '').toLowerCase();
-                                if (txt.length > 3 && txt.length < 120 &&
-                                    ((awayTeam && txt.includes(awayTeam)) || (homeTeam && txt.includes(homeTeam)))) {
-                                    links[i].style.background = '#1E3A8A';
-                                    links[i].style.color = '#38BDF8';
-                                    links[i].style.fontWeight = 'bold';
-                                    links[i].scrollIntoView({ behavior: 'smooth', block: 'center' });
-                                    var clickable = links[i].tagName === 'A' ? links[i] : links[i].querySelector('a');
-                                    if (clickable && !clickable.dataset.autoOpened) {
-                                        clickable.dataset.autoOpened = 'true';
-                                        clickable.click();
-                                        break;
-                                    }
-                                }
-                            }
-                        });
-                    }
+                        /* 3. High-visibility focus ring for Fire TV D-pad navigation */
+                        a:focus, button:focus, [tabindex]:focus {
+                            outline: 3px solid #38BDF8 !important;
+                            outline-offset: 2px !important;
+                            background-color: #2563EB !important;
+                            color: #FFFFFF !important;
+                        }
+                    `;
+                    if (document.head) document.head.appendChild(style);
                 }
 
-                setTimeout(cleanAndFindGame, 800);
-                setTimeout(cleanAndFindGame, 2500);
+                // Strip promotional buttons by text match ("Buy Plan", "Share", "Settings")
+                function cleanDomElements() {
+                    document.querySelectorAll('a, button, div, span').forEach(function(el) {
+                        if (el.children.length > 2) return;
+                        var txt = (el.innerText || '').trim().toLowerCase();
+                        if (txt === 'buy plan' || txt === 'share' || txt === 'settings' || txt === 'premium') {
+                            var parentBtn = el.closest('button, a');
+                            if (parentBtn) parentBtn.style.display = 'none';
+                            else el.style.display = 'none';
+                        }
+
+                        // Ensure stream source links (e.g., "LINK 1", "LIVE 2") are D-pad focusable
+                        if (/^(link|live|stream|feed|server)\s*\d*$/i.test(txt)) {
+                            var clickTarget = el.closest('a, button, li') || el;
+                            clickTarget.setAttribute('tabindex', '0');
+                            clickTarget.style.padding = '12px 18px';
+                            clickTarget.style.margin = '4px';
+                            clickTarget.style.background = '#1E293B';
+                            clickTarget.style.color = '#38BDF8';
+                            clickTarget.style.border = '2px solid #38BDF8';
+                            clickTarget.style.borderRadius = '8px';
+                            clickTarget.style.fontWeight = 'bold';
+                        }
+                    });
+                }
+
+                cleanDomElements();
+                setTimeout(cleanDomElements, 1200);
             })();
         """.trimIndent()
 
         webView.evaluateJavascript(js, null)
     }
 
-    inner class Bridge {
-        @JavascriptInterface
-        fun triggerGitHubUpdate() {
-            runOnUiThread { startUpdateCheck() }
-        }
-
-        @JavascriptInterface
-        fun openGameStream(providerUrl: String, awayTeam: String, homeTeam: String) {
-            runOnUiThread {
-                targetAwayTeam = awayTeam
-                targetHomeTeam = homeTeam
-                backToHubBar.text = if (awayTeam.isNotEmpty()) {
-                    "← Back to Hub ($awayTeam @ $homeTeam)"
-                } else {
-                    "← Back to IceStream Hub"
-                }
-                webView.loadUrl(providerUrl)
-            }
-        }
-
-        @JavascriptInterface
-        fun postMessage(message: String?) {
-            if (message == "checkUpdate") {
-                runOnUiThread { startUpdateCheck() }
-            }
-        }
-    }
-
     private fun setUpdateStatus(status: String) {
-        webView.evaluateJavascript(
-            "if (typeof setUpdateStatus === 'function') setUpdateStatus(${JSONObject.quote(status)});",
-            null
-        )
+        runOnUiThread {
+            updateBtn.text = status
+        }
     }
 
     private fun toast(message: String) {
@@ -449,7 +418,7 @@ class MainActivity : Activity() {
         if (updateJob?.isActive == true) return
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
-            setUpdateStatus("Permission needed")
+            setUpdateStatus("Permission")
             requestInstallPermission()
             return
         }
@@ -461,7 +430,7 @@ class MainActivity : Activity() {
                 throw e
             } catch (e: Exception) {
                 e.printStackTrace()
-                setUpdateStatus("Error")
+                setUpdateStatus("⚠️ Retry")
                 toast("Update failed: ${e.localizedMessage}")
             }
         }
@@ -472,7 +441,7 @@ class MainActivity : Activity() {
             startActivity(
                 Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName"))
             )
-            toast("Enable 'Allow from this source', then tap Check Updates again.")
+            toast("Enable 'Allow from this source', then tap Update again.")
         } catch (_: ActivityNotFoundException) {
             toast("Allow this app to install unknown apps in Settings.")
         }
@@ -486,14 +455,14 @@ class MainActivity : Activity() {
             .getLong(KEY_LAST_ASSET_ID, -1L)
 
         if (release.assetId != -1L && release.assetId == lastInstalledAssetId) {
-            setUpdateStatus("Up to date!")
+            setUpdateStatus("✓ Up to date")
             toast("Already running the latest build (${release.tag}).")
             return
         }
 
         val apkUrl = release.apkUrl
         if (apkUrl.isNullOrEmpty() || !apkUrl.startsWith("https://")) {
-            setUpdateStatus("No APK found")
+            setUpdateStatus("No APK")
             toast("Release '${release.tag}' has no .apk asset attached.")
             return
         }
@@ -672,11 +641,11 @@ class MainActivity : Activity() {
                             .putLong(KEY_LAST_ASSET_ID, pendingAssetId)
                             .apply()
                     }
-                    setUpdateStatus("Updated!")
+                    setUpdateStatus("✓ Updated")
                     toast("Update installed!")
                 }
                 else -> {
-                    setUpdateStatus("Install failed")
+                    setUpdateStatus("Failed")
                     toast(intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE) ?: "Install failed.")
                 }
             }
