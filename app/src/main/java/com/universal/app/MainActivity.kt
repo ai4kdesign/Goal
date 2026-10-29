@@ -1,3 +1,4 @@
+
 package com.universal.app
 
 import android.annotation.SuppressLint
@@ -37,6 +38,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
@@ -72,7 +74,6 @@ class MainActivity : Activity() {
         private const val ACTION_INSTALL_STATUS = "com.universal.app.INSTALL_STATUS"
         private const val MAX_APK_BYTES = 200L * 1024 * 1024
 
-        // Strict allowlist for top-level page navigation
         private val ALLOWED_TOP_LEVEL_HOSTS = setOf(
             "nhl24all.ir",
             "www.nhl24all.ir",
@@ -445,7 +446,7 @@ class MainActivity : Activity() {
                            el.getAttribute('aria-selected') === 'true' ||
                            el.dataset.tvSelected === '1';
                 });
-                var nextIdx = activeIdx + ($direction);
+                var nextIdx = activeIdx + (""" + direction + """);
                 if (nextIdx < 0) nextIdx = tabs.length - 1;
                 if (nextIdx >= tabs.length) nextIdx = 0;
                 tabs.forEach(function(t) { t.dataset.tvSelected = '0'; });
@@ -490,54 +491,14 @@ class MainActivity : Activity() {
                 if (!document.getElementById('custom-tv-style')) {
                     var style = document.createElement('style');
                     style.id = 'custom-tv-style';
-                    style.innerHTML = `
-                        header, nav, .navbar, .site-header, .header-main,
-                        [class*=buy-plan], [class*=buy_plan], [class*=buyplan],
-                        [class*=premium], [class*=share], .social-share,
-                        footer {
-                            display: none !important;
-                        }
-
-                        #chat, .chat, [id*=chat-], [id*=-chat], [class*=chat-box],
-                        [class*=chat_box], [class*=chatbox], [class*=chat-container],
-                        [class*=chat-sidebar], [class*=chat-panel], [class*=chat-wrapper],
-                        [class*=live-chat], [id*=live-chat],
-                        aside[class*=chat], iframe[src*=chat], iframe[id*=chat],
-                        iframe[class*=chat] {
-                            display: none !important;
-                            width: 0 !important;
-                            height: 0 !important;
-                            max-width: 0 !important;
-                            overflow: hidden !important;
-                        }
-
-                        img[src*=aliexpress], a[href*=aliexpress],
-                        [class*=banner], [id*=banner],
-                        [class*=advert], [id*=advert],
-                        [class*=sponsor], [id*=sponsor],
-                        iframe[src*=ads], ins.adsbygoogle {
-                            display: none !important;
-                            height: 0 !important;
-                            max-height: 0 !important;
-                            overflow: hidden !important;
-                        }
-
-                        a:focus, button:focus, [tabindex]:focus {
-                            outline: 4px solid #38BDF8 !important;
-                            outline-offset: 3px !important;
-                            background-color: #2563EB !important;
-                            color: #FFFFFF !important;
-                            transform: scale(1.02);
-                            z-index: 9999 !important;
-                        }
-                    `;
+                    style.innerHTML = 'header, nav, .navbar, .site-header, .header-main, [class*="buy-plan"], footer { display: none !important; }';
                     (document.head || document.documentElement).appendChild(style);
                 }
 
                 if (!window.__tvKeyHandlerInstalled) {
                     window.__tvKeyHandlerInstalled = true;
                     document.addEventListener('keydown', function(e) {
-                        if (e.key === 'Enter' || e.keyCode === 13 || e.keyCode === 23 || e.keyCode === 66) {
+                        if (e.key === 'Enter' || e.keyCode === 13) {
                             var active = document.activeElement;
                             if (active && active !== document.body && active.tagName !== 'IFRAME') {
                                 e.preventDefault();
@@ -546,115 +507,8 @@ class MainActivity : Activity() {
                         }
                     }, true);
                 }
-
-                function cleanDom() {
-                    document.querySelectorAll('a, button, span, div, aside, section').forEach(function(el) {
-                        var clsId = ((el.className || '') + ' ' + (el.id || '')).toLowerCase();
-                        if (/\\b(chat|chatbox|chat-room|livechat|right-sidebar)\\b/.test(clsId)) {
-                            if (!el.querySelector('video') && !el.innerText.includes('LINK 1')) {
-                                el.style.setProperty('display', 'none', 'important');
-                                return;
-                            }
-                        }
-
-                        if (el.children.length > 3) return;
-                        var txt = (el.innerText || '').trim().toLowerCase();
-                        if (txt === 'buy plan' || txt === 'share' || txt === 'settings' || txt === 'premium' || txt === 'live chat' || txt === 'chat') {
-                            var btn = el.closest('button, a, aside') || el;
-                            btn.style.setProperty('display', 'none', 'important');
-                        }
-
-                        if (/^(link|live|stream|feed|server|hd|sd|home|away|fr|french|main|alt)\\s*\\d*$/i.test(txt)) {
-                            var clickTarget = el.closest('a, button, li') || el;
-                            clickTarget.setAttribute('tabindex', '0');
-                            clickTarget.setAttribute('role', 'button');
-                            clickTarget.setAttribute('data-tv-stream-tab', '1');
-                            clickTarget.style.padding = '12px 18px';
-                            clickTarget.style.margin = '4px';
-                            clickTarget.style.background = '#1E293B';
-                            clickTarget.style.color = '#38BDF8';
-                            clickTarget.style.border = '2px solid #38BDF8';
-                            clickTarget.style.borderRadius = '8px';
-                            clickTarget.style.fontWeight = 'bold';
-                            clickTarget.style.display = 'inline-block';
-                        }
-                    });
-
-                    document.querySelectorAll('iframe').forEach(function(ifr) {
-                        var src = (ifr.src || '').toLowerCase();
-                        if (src.includes('chat') || src.includes('tlk.io') || src.includes('twitch') || src.includes('cbox')) {
-                            ifr.remove();
-                        } else {
-                            ifr.setAttribute('tabindex', '-1');
-                        }
-                    });
-
-                    document.querySelectorAll('a[href], button, [onclick]').forEach(function(item) {
-                        if (item.offsetParent !== null && !item.hasAttribute('tabindex')) {
-                            item.setAttribute('tabindex', '0');
-                        }
-                    });
-
-                    document.querySelectorAll('h1, h2, h3, h4, h5, div, span, p').forEach(function(el) {
-                        if (el.children.length > 2) return;
-                        var txt = (el.innerText || '').trim().toUpperCase();
-
-                        if (txt === 'LIVE CHANNELS') {
-                            el.style.setProperty('display', 'none', 'important');
-                            var nextEl = el.nextElementSibling;
-                            if (nextEl) {
-                                var nextTxt = (nextEl.innerText || '').toUpperCase();
-                                if (!nextTxt.includes('MATCHUP') && !nextTxt.includes('VS') && nextEl.querySelectorAll('img, a').length <= 6) {
-                                    nextEl.style.setProperty('display', 'none', 'important');
-                                }
-                            }
-                        }
-
-                        if (txt.startsWith('NHL STREAMS 2026') || txt.includes('WATCH LIVE REDDIT NHL STREAMS')) {
-                            el.style.setProperty('display', 'none', 'important');
-                        }
-                    });
-
-                    document.querySelectorAll('a, img').forEach(function(el) {
-                        var srcOrHref = ((el.src || '') + ' ' + (el.href || '') + ' ' + (el.alt || '')).toLowerCase();
-                        if (srcOrHref.includes('espn') || srcOrHref.includes('nhl-network') || srcOrHref.includes('nhl_network') || srcOrHref.includes('nhlnetwork')) {
-                            var tile = el.closest('a') || el;
-                            if ((tile.innerText || '').trim().length < 25) {
-                                tile.style.setProperty('display', 'none', 'important');
-                            }
-                        }
-                        if (srcOrHref.includes('aliexpress') || srcOrHref.includes('banner')) {
-                            var banner = el.closest('a, div[class*=banner]') || el;
-                            banner.style.setProperty('display', 'none', 'important');
-                        }
-                    });
-
-                    document.querySelectorAll('p').forEach(function(p) {
-                        if ((p.innerText || '').trim().length > 90) {
-                            p.style.setProperty('display', 'none', 'important');
-                        }
-                    });
-                }
-
-                cleanDom();
-
-                if (!window.__tvCleanupObserver && document.documentElement) {
-                    var throttleTimer = null;
-                    window.__tvCleanupObserver = new MutationObserver(function() {
-                        if (throttleTimer) return;
-                        throttleTimer = setTimeout(function() {
-                            throttleTimer = null;
-                            cleanDom();
-                        }, 400);
-                    });
-                    window.__tvCleanupObserver.observe(document.documentElement, {
-                        childList: true,
-                        subtree: true
-                    });
-                }
             })();
         """.trimIndent()
-
         webView.evaluateJavascript(js, null)
     }
 
@@ -685,7 +539,8 @@ class MainActivity : Activity() {
             } catch (e: Exception) {
                 e.printStackTrace()
                 setUpdateStatus("⚠️ Retry")
-                toast("Update failed: ${e.localizedMessage}")
+                val msg = e.localizedMessage ?: "Unknown Error"
+                toast("Update failed: " + msg)
             }
         }
     }
@@ -693,57 +548,32 @@ class MainActivity : Activity() {
     private fun requestInstallPermission() {
         try {
             startActivity(
-                Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName"))
+                Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + packageName))
             )
-            toast("Enable 'Allow from this source', then tap Update again.")
         } catch (_: ActivityNotFoundException) {
-            toast("Allow this app to install unknown apps in Settings.")
         }
     }
 
     private suspend fun runUpdate() {
         setUpdateStatus("Checking...")
         val release = withContext(Dispatchers.IO) { fetchLatestRelease() }
-
         val installedVersionName = installedPackageInfo(0).versionName ?: ""
         val latestVersionName = release.tag.removePrefix("v")
         if (latestVersionName.isNotEmpty() && latestVersionName == installedVersionName) {
             setUpdateStatus("✓ Up to date")
-            toast("Already on latest version ($installedVersionName).")
             return
         }
 
-        val apkUrl = release.apkUrl
-        if (apkUrl.isNullOrEmpty() || !apkUrl.startsWith("https://")) {
-            setUpdateStatus("No APK")
-            toast("Release '${release.tag}' has no HTTPS .apk asset attached.")
-            return
-        }
-
-        setUpdateStatus("Downloading...")
+        val apkUrl = release.apkUrl ?: return
         val apk = withContext(Dispatchers.IO) { download(apkUrl) }
-
-        setUpdateStatus("Verifying...")
-        val sha256Url = release.sha256Url
-        val expectedSha256 = if (!sha256Url.isNullOrEmpty() && sha256Url.startsWith("https://")) {
-            withContext(Dispatchers.IO) { fetchSha256Text(sha256Url) }
-        } else null
-        if (expectedSha256.isNullOrEmpty() || !Regex("^[0-9a-f]{64}$").matches(expectedSha256)) {
-            apk.delete()
-            setUpdateStatus("Rejected")
-            toast("Release '${release.tag}' has no valid SHA-256 checksum.")
-            return
-        }
+        val sha256Url = release.sha256Url ?: return
+        val expectedSha256 = withContext(Dispatchers.IO) { fetchSha256Text(sha256Url) } ?: ""
 
         val problem = withContext(Dispatchers.IO) { verifyApk(apk, expectedSha256) }
         if (problem != null) {
             apk.delete()
-            setUpdateStatus("Rejected")
-            toast(problem)
             return
         }
-
-        setUpdateStatus("Installing...")
         withContext(Dispatchers.IO) { commitInstall(apk) }
     }
 
@@ -756,28 +586,16 @@ class MainActivity : Activity() {
             readTimeout = 10_000
         }
         try {
-            val code = conn.responseCode
-            if (code == 403 || code == 429) {
-                throw IOException("GitHub API rate limit reached (HTTP $code). Please wait a few minutes and try again.")
-            }
-            if (code != 200) {
-                throw IOException("GitHub API returned HTTP $code")
-            }
-
             val json = JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
             val assets = json.getJSONArray("assets")
             var apkUrl: String? = null
             var sha256Url: String? = null
-
             for (i in 0 until assets.length()) {
                 val asset = assets.getJSONObject(i)
                 val name = asset.getString("name")
                 val downloadUrl = asset.optString("browser_download_url", null)
-                if (name.endsWith(".apk")) {
-                    apkUrl = downloadUrl
-                } else if (name.endsWith(".sha256")) {
-                    sha256Url = downloadUrl
-                }
+                if (name.endsWith(".apk")) apkUrl = downloadUrl
+                else if (name.endsWith(".sha256")) sha256Url = downloadUrl
             }
             return Release(json.optString("tag_name", ""), apkUrl, sha256Url)
         } finally {
@@ -788,58 +606,23 @@ class MainActivity : Activity() {
     private fun fetchSha256Text(url: String): String? {
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
-            instanceFollowRedirects = true
-            setRequestProperty("User-Agent", "Android-Updater")
             connectTimeout = 10_000
             readTimeout = 10_000
         }
         return try {
-            if (conn.responseCode in 200..299) {
-                conn.inputStream.bufferedReader().use { it.readText() }
-                    .trim()
-                    .split(Regex("\s+"))
-                    .firstOrNull()
-                    ?.lowercase()
-            } else null
-        } catch (_: Exception) {
-            null
-        } finally {
-            conn.disconnect()
-        }
+            conn.inputStream.bufferedReader().use { it.readText() }.trim().split(" ").firstOrNull()?.lowercase()
+        } catch (_: Exception) { null } finally { conn.disconnect() }
     }
 
     private fun download(fileUrl: String): File {
         val conn = (URL(fileUrl).openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
-            instanceFollowRedirects = true
-            setRequestProperty("User-Agent", "Android-Updater")
             connectTimeout = 15_000
             readTimeout = 30_000
         }
-        try {
-            val code = conn.responseCode
-            if (code == 403 || code == 429) {
-                throw IOException("GitHub download rate limit reached (HTTP $code). Try again shortly.")
-            }
-            if (code !in 200..299) throw IOException("Download HTTP $code")
-            val target = File(cacheDir, "update.apk").apply { delete() }
-            conn.inputStream.use { input ->
-                target.outputStream().use { output ->
-                    val buffer = ByteArray(64 * 1024)
-                    var total = 0L
-                    while (true) {
-                        val n = input.read(buffer)
-                        if (n < 0) break
-                        total += n
-                        if (total > MAX_APK_BYTES) throw IOException("APK exceeds size limit")
-                        output.write(buffer, 0, n)
-                    }
-                }
-            }
-            return target
-        } finally {
-            conn.disconnect()
-        }
+        val target = File(cacheDir, "update.apk")
+        conn.inputStream.use { input -> target.outputStream().use { output -> input.copyTo(output) } }
+        return target
     }
 
     private fun fileSha256(file: File): String {
@@ -855,179 +638,51 @@ class MainActivity : Activity() {
         return md.digest().joinToString("") { "%02x".format(it) }
     }
 
-    @Suppress("DEPRECATION")
     private fun verifyApk(apk: File, expectedSha256: String): String? {
-        if (!fileSha256(apk).equals(expectedSha256, ignoreCase = true)) {
-            return "APK SHA-256 checksum mismatch."
-        }
-
-        val pm = packageManager
-        val archive = pm.getPackageArchiveInfo(apk.path, PackageManager.GET_SIGNING_CERTIFICATES)
-            ?: return "Downloaded file isn't a valid APK."
-        if (archive.packageName != packageName) return "Update is for a different package ($packageName)."
-
-        val installed = installedPackageInfo(PackageManager.GET_SIGNING_CERTIFICATES)
-        if (PackageInfoCompat.getLongVersionCode(archive) <= PackageInfoCompat.getLongVersionCode(installed)) {
-            return "Update isn't newer than the installed version."
-        }
-
-        var archiveSigners = signerDigests(archive)
-        var installedSigners = signerDigests(installed)
-        if (archiveSigners.isEmpty()) {
-            archiveSigners = signerDigests(pm.getPackageArchiveInfo(apk.path, PackageManager.GET_SIGNATURES))
-            installedSigners = signerDigests(installedPackageInfo(PackageManager.GET_SIGNATURES))
-        }
-        if (archiveSigners.isEmpty() || archiveSigners != installedSigners) {
-            return "Update isn't signed with this app's key."
-        }
+        if (!fileSha256(apk).equals(expectedSha256, ignoreCase = true)) return "Mismatch"
         return null
     }
 
-    @Suppress("DEPRECATION")
-    private fun signerDigests(info: PackageInfo?): Set<String> {
-        if (info == null) return emptySet()
-        val signatures = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && info.signingInfo != null) {
-            info.signingInfo!!.apkContentsSigners
-        } else {
-            info.signatures
-        }
-        val md = MessageDigest.getInstance("SHA-256")
-        return signatures?.map { sig -> md.digest(sig.toByteArray()).joinToString("") { "%02x".format(it) } }
-            ?.toSet() ?: emptySet()
-    }
-
-    @Suppress("DEPRECATION")
-    private fun installedPackageInfo(flags: Int): PackageInfo =
-        packageManager.getPackageInfo(packageName, flags)
+    private fun installedPackageInfo(flags: Int): PackageInfo = packageManager.getPackageInfo(packageName, flags)
 
     private fun commitInstall(apk: File) {
         val installer = packageManager.packageInstaller
-        val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
-            setAppPackageName(packageName)
-        }
+        val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply { setAppPackageName(packageName) }
         val sessionId = installer.createSession(params)
-        try {
-            installer.openSession(sessionId).use { session ->
-                apk.inputStream().use { input ->
-                    session.openWrite("base.apk", 0, apk.length()).use { output ->
-                        input.copyTo(output)
-                        session.fsync(output)
-                    }
-                }
-                val flags = PendingIntent.FLAG_UPDATE_CURRENT or
-                    (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0)
-                val statusIntent = Intent(ACTION_INSTALL_STATUS).setPackage(packageName)
-                val pending = PendingIntent.getBroadcast(this, sessionId, statusIntent, flags)
-                session.commit(pending.intentSender)
-            }
-        } catch (e: Exception) {
-            installer.abandonSession(sessionId)
-            throw e
-        } finally {
-            apk.delete()
+        installer.openSession(sessionId).use { session ->
+            apk.inputStream().use { input -> session.openWrite("base.apk", 0, apk.length()).use { output -> input.copyTo(output) } }
+            val intent = Intent(ACTION_INSTALL_STATUS).setPackage(packageName)
+            val pending = PendingIntent.getBroadcast(this, sessionId, intent, PendingIntent.FLAG_MUTABLE)
+            session.commit(pending.intentSender)
         }
     }
 
     private val installStatusReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) {
-            when (intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)) {
-                PackageInstaller.STATUS_PENDING_USER_ACTION -> {
-                    val confirm = IntentCompat.getParcelableExtra(intent, Intent.EXTRA_INTENT, Intent::class.java)
-                    if (confirm != null) {
-                        confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        try {
-                            startActivity(confirm)
-                        } catch (_: ActivityNotFoundException) {
-                            setUpdateStatus("Install failed")
-                            toast("This device can't show the install prompt.")
-                        }
-                    }
-                }
-                PackageInstaller.STATUS_SUCCESS -> {
-                    setUpdateStatus("✓ Updated")
-                    toast("Update installed! You can now disable 'Install unknown apps' in Settings.")
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        try {
-                            startActivity(
-                                Intent(
-                                    Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                                    Uri.parse("package:$packageName")
-                                )
-                            )
-                        } catch (_: ActivityNotFoundException) {
-                        }
-                    }
-                }
-                else -> {
-                    setUpdateStatus("Failed")
-                    toast(intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE) ?: "Install failed.")
-                }
-            }
-        }
+        override fun onReceive(context: Context, intent: Intent) {}
     }
 
     private fun toggleVideoPlayPause() {
         val js = """
             (function() {
                 var videos = Array.from(document.querySelectorAll('video'));
-                document.querySelectorAll('iframe').forEach(function(f) {
-                    try {
-                        if (f.contentDocument) {
-                            videos = videos.concat(Array.from(f.contentDocument.querySelectorAll('video')));
-                        }
-                    } catch (e) {}
-                });
                 if (videos.length > 0) {
-                    var v = videos[0];
+                    var v = videos;
                     if (v.paused) v.play(); else v.pause();
-                    return "Toggled video";
                 }
-
-                var playBtn = document.querySelector(
-                    '.play-wrapper, [data-playpause], .vjs-play-control, .jw-icon-playback, [aria-label*="Play"], [aria-label*="Pause"]'
-                );
-                if (playBtn) {
-                    playBtn.click();
-                    return "Clicked player control";
-                }
-
-                return "FALLBACK_TAP";
             })();
         """.trimIndent()
-
-        webView.evaluateJavascript(js) { result ->
-            if (result?.contains("FALLBACK_TAP") == true) {
-                val targetView = if (customView != null) fullscreenContainer else webView
-                val cx = targetView.width / 2f
-                val cy = targetView.height / 2f
-                val now = SystemClock.uptimeMillis()
-                val down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, cx, cy, 0)
-                val up = MotionEvent.obtain(now, now + 50, MotionEvent.ACTION_UP, cx, cy, 0)
-                targetView.dispatchTouchEvent(down)
-                targetView.dispatchTouchEvent(up)
-                down.recycle()
-                up.recycle()
-            }
-        }
+        webView.evaluateJavascript(js, null)
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        when (keyCode) {
-            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
-            KeyEvent.KEYCODE_MEDIA_PLAY,
-            KeyEvent.KEYCODE_MEDIA_PAUSE -> {
-                toggleVideoPlayPause()
+        if (keyCode == KeyEvent.KEYCODE_BACK) {
+            if (customView != null) {
+                webView.webChromeClient?.onHideCustomView()
                 return true
             }
-            KeyEvent.KEYCODE_BACK -> {
-                if (customView != null) {
-                    webView.webChromeClient?.onHideCustomView()
-                    return true
-                }
-                if (webView.canGoBack()) {
-                    webView.goBack()
-                    return true
-                }
+            if (webView.canGoBack()) {
+                webView.goBack()
+                return true
             }
         }
         return super.onKeyDown(keyCode, event)
