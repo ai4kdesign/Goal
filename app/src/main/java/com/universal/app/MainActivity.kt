@@ -566,7 +566,7 @@ class MainActivity : Activity() {
                 function cleanDom() {
                     document.querySelectorAll('a, button, span, div, aside, section').forEach(function(el) {
                         var clsId = ((el.className || '') + ' ' + (el.id || '')).toLowerCase();
-                        if (/\b(chat|chatbox|chat-room|livechat|right-sidebar)\b/.test(clsId)) {
+                        if (/\\b(chat|chatbox|chat-room|livechat|right-sidebar)\\b/.test(clsId)) {
                             if (!el.querySelector('video') && !el.innerText.includes('LINK 1')) {
                                 el.style.setProperty('display', 'none', 'important');
                                 return;
@@ -580,7 +580,7 @@ class MainActivity : Activity() {
                             btn.style.setProperty('display', 'none', 'important');
                         }
 
-                        if (/^(link|live|stream|feed|server|hd|sd|home|away|fr|french|main|alt)\s*\d*$/i.test(txt)) {
+                        if (/^(link|live|stream|feed|server|hd|sd|home|away|fr|french|main|alt)\\s*\\d*$/i.test(txt)) {
                             var clickTarget = el.closest('a, button, li') || el;
                             clickTarget.setAttribute('tabindex', '0');
                             clickTarget.setAttribute('role', 'button');
