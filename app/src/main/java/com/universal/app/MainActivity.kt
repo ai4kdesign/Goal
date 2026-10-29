@@ -1,4 +1,3 @@
-
 package com.universal.app
 
 import android.annotation.SuppressLint
@@ -491,8 +490,40 @@ class MainActivity : Activity() {
                 if (!document.getElementById('custom-tv-style')) {
                     var style = document.createElement('style');
                     style.id = 'custom-tv-style';
-                    style.innerHTML = 'header, nav, .navbar, .site-header, .header-main, [class*="buy-plan"], footer { display: none !important; }';
+                    style.innerHTML = 'header, nav, .navbar, .site-header, .header-main, [class*="buy-plan"], footer { display: none !important; } #chat, .chat, [id*="chat-"], [id*="-chat"], [class*="chat-box"], [class*="chat_box"], [class*="chatbox"], [class*="chat-container"], [class*="chat-sidebar"], [class*="chat-panel"], [class*="chat-wrapper"], [class*="live-chat"], [id*="live-chat"], aside[class*="chat"], iframe[src*="chat"], iframe[id*="chat"], iframe[class*="chat"] { display: none !important; width: 0 !important; height: 0 !important; max-width: 0 !important; overflow: hidden !important; }';
                     (document.head || document.documentElement).appendChild(style);
+                }
+
+                function removeChatElements() {
+                    var chatKeywords = ['chat', 'chatbox', 'chat-room', 'livechat', 'right-sidebar'];
+                    document.querySelectorAll('aside, div, section, iframe').forEach(function(el) {
+                        var clsId = ((el.className || '') + ' ' + (el.id || '') + ' ' + (el.src || '')).toLowerCase();
+                        var matchesKeyword = chatKeywords.some(function(keyword) {
+                            return clsId.indexOf(keyword) !== -1;
+                        });
+                        if (matchesKeyword) {
+                            if (!el.querySelector('video')) {
+                                el.style.setProperty('display', 'none', 'important');
+                            }
+                        }
+                    });
+                }
+
+                removeChatElements();
+
+                if (!window.__tvCleanupObserver && document.documentElement) {
+                    var throttleTimer = null;
+                    window.__tvCleanupObserver = new MutationObserver(function() {
+                        if (throttleTimer) return;
+                        throttleTimer = setTimeout(function() {
+                            throttleTimer = null;
+                            removeChatElements();
+                        }, 400);
+                    });
+                    window.__tvCleanupObserver.observe(document.documentElement, {
+                        childList: true,
+                        subtree: true
+                    });
                 }
 
                 if (!window.__tvKeyHandlerInstalled) {
