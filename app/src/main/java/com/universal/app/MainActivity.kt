@@ -37,7 +37,6 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.FrameLayout
-import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
@@ -125,7 +124,6 @@ class MainActivity : Activity() {
             )
         }
 
-        // Scrollable top bar so all Fire TV remote helper buttons fit on any screen size
         val topScroll = HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
             setBackgroundColor(Color.parseColor("#0F172A"))
@@ -164,7 +162,6 @@ class MainActivity : Activity() {
             }
         }
 
-        // Fire TV Remote Helpers: Cycle Home / Away / LINK 1 / LIVE 2 even if the video iframe traps focus
         val prevLinkBtn = createNavButton("⏮ Link") {
             cycleStreamSource(-1)
         }
@@ -297,10 +294,6 @@ class MainActivity : Activity() {
         return ALLOWED_TOP_LEVEL_HOSTS.any { clean == it || clean.endsWith(".$it") }
     }
 
-    // ---------------------------------------------------------------------------------------------
-    // Hardened WebView Setup with Stream Player Compatibility
-    // ---------------------------------------------------------------------------------------------
-
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupWebView() {
         with(webView.settings) {
@@ -325,7 +318,6 @@ class MainActivity : Activity() {
         cookieManager.setAcceptCookie(true)
         cookieManager.setAcceptThirdPartyCookies(webView, true)
 
-        // Block all file downloads
         webView.setDownloadListener { _, _, _, _, _ -> }
 
         webView.webViewClient = object : WebViewClient() {
@@ -352,11 +344,9 @@ class MainActivity : Activity() {
                 val fullUrl = uri.toString()
                 val scheme = uri.scheme?.lowercase() ?: ""
 
-                // Strictly HTTPS only for top-level navigation
                 if (scheme != "https") return true
                 if (isBlockedUrl(fullUrl)) return true
 
-                // Top-level navigation is locked to the allowlisted hosts
                 if (request.isForMainFrame && !isAllowedTopLevelHost(uri.host)) {
                     return true
                 }
@@ -403,12 +393,10 @@ class MainActivity : Activity() {
                 resultMsg: android.os.Message?
             ): Boolean = false
 
-            // Deny all camera/mic/media permission prompts
             override fun onPermissionRequest(request: PermissionRequest?) {
                 request?.deny()
             }
 
-            // Deny all geolocation prompts
             override fun onGeolocationPermissionsShowPrompt(
                 origin: String?,
                 callback: GeolocationPermissions.Callback?
@@ -445,10 +433,6 @@ class MainActivity : Activity() {
             }
         }
     }
-
-    // ---------------------------------------------------------------------------------------------
-    // Fire TV Remote Helpers (Switch Stream Links & Fullscreen from Top Bar)
-    // ---------------------------------------------------------------------------------------------
 
     private fun cycleStreamSource(direction: Int) {
         val js = """
@@ -508,18 +492,18 @@ class MainActivity : Activity() {
                     style.id = 'custom-tv-style';
                     style.innerHTML = `
                         header, nav, .navbar, .site-header, .header-main,
-                        [class*="buy-plan"], [class*="buy_plan"], [class*="buyplan"],
-                        [class*="premium"], [class*="share"], .social-share,
+                        [class*=buy-plan], [class*=buy_plan], [class*=buyplan],
+                        [class*=premium], [class*=share], .social-share,
                         footer {
                             display: none !important;
                         }
 
-                        #chat, .chat, [id*="chat-"], [id*="-chat"], [class*="chat-box"],
-                        [class*="chat_box"], [class*="chatbox"], [class*="chat-container"],
-                        [class*="chat-sidebar"], [class*="chat-panel"], [class*="chat-wrapper"],
-                        [class*="live-chat"], [id*="live-chat"],
-                        aside[class*="chat"], iframe[src*="chat"], iframe[id*="chat"],
-                        iframe[class*="chat"] {
+                        #chat, .chat, [id*=chat-], [id*=-chat], [class*=chat-box],
+                        [class*=chat_box], [class*=chatbox], [class*=chat-container],
+                        [class*=chat-sidebar], [class*=chat-panel], [class*=chat-wrapper],
+                        [class*=live-chat], [id*=live-chat],
+                        aside[class*=chat], iframe[src*=chat], iframe[id*=chat],
+                        iframe[class*=chat] {
                             display: none !important;
                             width: 0 !important;
                             height: 0 !important;
@@ -527,11 +511,11 @@ class MainActivity : Activity() {
                             overflow: hidden !important;
                         }
 
-                        img[src*="aliexpress"], a[href*="aliexpress"],
-                        [class*="banner"], [id*="banner"],
-                        [class*="advert"], [id*="advert"],
-                        [class*="sponsor"], [id*="sponsor"],
-                        iframe[src*="ads"], ins.adsbygoogle {
+                        img[src*=aliexpress], a[href*=aliexpress],
+                        [class*=banner], [id*=banner],
+                        [class*=advert], [id*=advert],
+                        [class*=sponsor], [id*=sponsor],
+                        iframe[src*=ads], ins.adsbygoogle {
                             display: none !important;
                             height: 0 !important;
                             max-height: 0 !important;
@@ -640,7 +624,7 @@ class MainActivity : Activity() {
                             }
                         }
                         if (srcOrHref.includes('aliexpress') || srcOrHref.includes('banner')) {
-                            var banner = el.closest('a, div[class*="banner"]') || el;
+                            var banner = el.closest('a, div[class*=banner]') || el;
                             banner.style.setProperty('display', 'none', 'important');
                         }
                     });
@@ -683,10 +667,6 @@ class MainActivity : Activity() {
     private fun toast(message: String) {
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
-
-    // ---------------------------------------------------------------------------------------------
-    // Hardened Auto-Updater
-    // ---------------------------------------------------------------------------------------------
 
     private fun startUpdateCheck() {
         if (updateJob?.isActive == true) return
