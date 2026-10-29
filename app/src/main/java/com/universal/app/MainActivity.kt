@@ -73,13 +73,6 @@ class MainActivity : Activity() {
         private const val ACTION_INSTALL_STATUS = "com.universal.app.INSTALL_STATUS"
         private const val MAX_APK_BYTES = 200L * 1024 * 1024
 
-        private val ALLOWED_TOP_LEVEL_HOSTS = setOf(
-            "nhl24all.ir",
-            "www.nhl24all.ir",
-            "nhlstreams.io",
-            "www.nhlstreams.io"
-        )
-
         private val AD_AND_CHAT_KEYWORDS = listOf(
             "doubleclick", "googlesyndication", "adservice", "popads", "popcash",
             "propellerads", "adsterra", "exoclick", "juicyads", "clickadu",
@@ -152,21 +145,15 @@ class MainActivity : Activity() {
         }
 
         val homeBtn = createNavButton("🏠 Games") {
-            val current = webView.url?.trimEnd('/') ?: ""
-            val target = START_URL.trimEnd('/')
-            if (current.equals(target, ignoreCase = true)) {
-                webView.evaluateJavascript("window.scrollTo({top: 0, behavior: 'smooth'});", null)
-                toast("At main schedule")
-            } else {
-                webView.loadUrl(START_URL)
-            }
+            webView.evaluateJavascript("window.scrollTo({top: 0, behavior: 'smooth'});", null)
+            toast("Scrolled to top")
         }
 
-        val prevLinkBtn = createNavButton("⏮ Link") {
+        val prevLinkBtn = createNavButton("⏮ Feed") {
             cycleStreamSource(-1)
         }
 
-        val nextLinkBtn = createNavButton("⏭ Link") {
+        val nextLinkBtn = createNavButton("⏭ Feed") {
             cycleStreamSource(1)
         }
 
@@ -289,24 +276,19 @@ class MainActivity : Activity() {
         return AD_AND_CHAT_KEYWORDS.any { lower.contains(it) }
     }
 
-    private fun isAllowedTopLevelHost(host: String?): Boolean {
-        val clean = host?.lowercase() ?: return false
-        return ALLOWED_TOP_LEVEL_HOSTS.any { clean == it || clean.endsWith(".$it") }
-    }
-
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupWebView() {
         with(webView.settings) {
             javaScriptEnabled = true
             domStorageEnabled = true
-            databaseEnabled = false
+            databaseEnabled = true
             mediaPlaybackRequiresUserGesture = false
             mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
             allowFileAccess = false
             allowContentAccess = false
             useWideViewPort = true
             loadWithOverviewMode = true
-            setSupportMultipleWindows(true)
+            setSupportMultipleWindows(false)
             javaScriptCanOpenWindowsAutomatically = false
         }
 
@@ -344,11 +326,15 @@ class MainActivity : Activity() {
                 val fullUrl = uri.toString()
                 val scheme = uri.scheme?.lowercase() ?: ""
 
-                if (scheme != "https") return true
+                if (scheme != "https" && scheme != "http") return true
                 if (isBlockedUrl(fullUrl)) return true
 
-                if (request.isForMainFrame && !isAllowedTopLevelHost(uri.host)) {
-                    return true
+                // Block external ad popups while allowing nhl24all / nhl66 domains
+                if (request.isForMainFrame) {
+                    val host = uri.host?.lowercase() ?: ""
+                    if (!host.contains("nhl24all") && !host.contains("nhl66") && !host.contains("nhlstreams")) {
+                        return true
+                    }
                 }
 
                 return false
@@ -434,32 +420,49 @@ class MainActivity : Activity() {
         }
     }
 
+    /**
+     * Cycles through every clickable team feed button inside the red "Today" game boxes
+     * so you can switch games/feeds directly using the top bar ⏮ Feed / ⏭ Feed buttons!
+     */
     private fun cycleStreamSource(direction: Int) {
         val js = """
             (function() {
-                var tabs = Array.from(document.querySelectorAll('[data-tv-stream-tab="1"]'));
-                if (tabs.length === 0) return "No stream tabs found on this page";
-                var activeIdx = tabs.findIndex(function(el) {
-                    return el === document.activeElement ||
-                           el.classList.contains('active') ||
-                           el.getAttribute('aria-selected') === 'true' ||
-                           el.dataset.tvSelected === '1';
+                // Find all team logo buttons inside the horizontal game schedule bar
+                var feedBtns = Array.from(document.querySelectorAll('[data-tv-feed-btn="1"]'));
+                if (feedBtns.length === 0) {
+                    // Fallback: grab all team logo images inside the schedule strip
+                    feedBtns = Array.from(document.querySelectorAll('img')).filter(function(img) {
+                        var rect = img.getBoundingClientRect();
+                        return rect.width >= 24 && rect.width <= 90 && rect.top > 150 && rect.top < 700;
+                    });
+                }
+                if (feedBtns.length === 0) return "No feeds found";
+
+                var currentIdx = window.__tvCurrentFeedIdx !== undefined ? window.__tvCurrentFeedIdx : 0;
+                var nextIdx = currentIdx + ($direction);
+                if (nextIdx < 0) nextIdx = feedBtns.length - 1;
+                if (nextIdx >= feedBtns.length) nextIdx = 0;
+                window.__tvCurrentFeedIdx = nextIdx;
+
+                var target = feedBtns[nextIdx];
+                target.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+                
+                // Dispatch full mouse/touch/click sequence for Vue.js reactivity
+                ['mousedown', 'mouseup', 'click'].forEach(function(evtType) {
+                    var evt = new MouseEvent(evtType, { bubbles: true, cancelable: true, view: window });
+                    target.dispatchEvent(evt);
                 });
-                var nextIdx = activeIdx + (""" + direction + """);
-                if (nextIdx < 0) nextIdx = tabs.length - 1;
-                if (nextIdx >= tabs.length) nextIdx = 0;
-                tabs.forEach(function(t) { t.dataset.tvSelected = '0'; });
-                var target = tabs[nextIdx];
-                target.dataset.tvSelected = '1';
-                target.focus();
-                target.click();
-                return (target.innerText || 'Stream').trim();
+                if (target.parentElement) {
+                    target.parentElement.click();
+                }
+                return "Feed #" + (nextIdx + 1) + " of " + feedBtns.length;
             })();
         """.trimIndent()
         webView.evaluateJavascript(js) { result ->
             val clean = result?.trim('"') ?: ""
             if (clean.isNotEmpty() && clean != "null") {
                 toast("Switched to: $clean")
+                webView.evaluateJavascript("window.scrollTo({top: 0, behavior: 'smooth'});", null)
             }
         }
     }
@@ -491,10 +494,10 @@ class MainActivity : Activity() {
                     var style = document.createElement('style');
                     style.id = 'custom-tv-style';
                     style.innerHTML = `
-                        header, nav, .navbar, .site-header, .header-main, [class*="buy-plan"], footer { 
+                        header, nav, .navbar, .site-header, .header-main, footer { 
                             display: none !important; 
                         }
-                        /* Chat box and chat iframes removal */
+                        /* Hide right-side chat drawer & chat iframes without touching game schedule */
                         #chat, .chat, [id*="chat-"], [id*="-chat"], [class*="chat-box"],
                         [class*="chat_box"], [class*="chatbox"], [class*="chat-container"],
                         [class*="chat-sidebar"], [class*="chat-panel"], [class*="chat-wrapper"],
@@ -507,37 +510,53 @@ class MainActivity : Activity() {
                             max-width: 0 !important;
                             overflow: hidden !important;
                         }
+                        /* Highlight focused team logo or game box on Fire TV remote */
+                        [data-tv-feed-btn="1"]:focus, .tv-focusable:focus {
+                            outline: 4px solid #38BDF8 !important;
+                            outline-offset: 2px !important;
+                            transform: scale(1.08);
+                        }
                     `;
                     (document.head || document.documentElement).appendChild(style);
                 }
 
-                function removeUnwantedElements() {
-                    // Target strictly the balance widget and betting rules box, protecting schedule cards
-                    document.querySelectorAll('aside, div, section').forEach(function(el) {
-                        var text = (el.innerText || '').toLowerCase();
-                        if (text.includes('your balance') || text.includes('win sum') || text.includes('max amount for each pick') || text.includes('tips and rules')) {
-                            if (!el.querySelector('video') && !el.querySelector('iframe') && el.innerText.length < 300) {
-                                el.style.setProperty('display', 'none', 'important');
-                            }
+                function enhanceScheduleAndHideBetting() {
+                    // 1. Tag every team logo box inside the game schedule so both touch & Fire TV remote can click them
+                    document.querySelectorAll('img').forEach(function(img) {
+                        var rect = img.getBoundingClientRect();
+                        if (rect.width >= 24 && rect.width <= 90) {
+                            var clickBox = img.parentElement || img;
+                            clickBox.setAttribute('data-tv-feed-btn', '1');
+                            clickBox.setAttribute('tabindex', '0');
+                            clickBox.classList.add('tv-focusable');
+                            clickBox.style.cursor = 'pointer';
                         }
                     });
 
-                    // Target chat elements safely
-                    var chatKeywords = ['chat', 'chatbox', 'chat-room', 'livechat', 'right-sidebar'];
-                    document.querySelectorAll('aside, div, section, iframe').forEach(function(el) {
-                        var clsId = ((el.className || '') + ' ' + (el.id || '') + ' ' + (el.src || '')).toLowerCase();
-                        var matchesKeyword = chatKeywords.some(function(keyword) {
-                            return clsId.indexOf(keyword) !== -1;
-                        });
-                        if (matchesKeyword) {
-                            if (!el.querySelector('video')) {
-                                el.style.setProperty('display', 'none', 'important');
-                            }
+                    // 2. Safely hide ONLY the bottom betting/prediction cards without touching the schedule container
+                    document.querySelectorAll('div, section, aside').forEach(function(el) {
+                        // Never touch any element that contains the video player or the horizontal game list!
+                        if (el.querySelector('video') || el.querySelector('iframe')) return;
+                        var txt = (el.innerText || '').trim();
+                        if (txt.includes('Oct ') || txt.includes('Yesterday') || txt.includes('Today') || txt.includes('Tomorrow')) {
+                            // If this container holds the top game strip, only hide specific betting child cards
+                            if (!txt.includes('Odd:')) return;
+                        }
+
+                        // Hide the small "Your Balance $1,000.00" box
+                        if (txt.startsWith('Your Balance') && txt.includes('Max amount for each pick') && el.children.length <= 6) {
+                            el.style.setProperty('display', 'none', 'important');
+                            return;
+                        }
+
+                        // Hide individual "Odd: 1.780" betting rows at the bottom
+                        if ((txt.includes('Odd:') || txt.includes('Betting On:') || txt.includes('Prediction Competition')) && el.children.length <= 8) {
+                            el.style.setProperty('display', 'none', 'important');
                         }
                     });
                 }
 
-                removeUnwantedElements();
+                enhanceScheduleAndHideBetting();
 
                 if (!window.__tvCleanupObserver && document.documentElement) {
                     var throttleTimer = null;
@@ -545,26 +564,13 @@ class MainActivity : Activity() {
                         if (throttleTimer) return;
                         throttleTimer = setTimeout(function() {
                             throttleTimer = null;
-                            removeUnwantedElements();
-                        }, 400);
+                            enhanceScheduleAndHideBetting();
+                        }, 500);
                     });
                     window.__tvCleanupObserver.observe(document.documentElement, {
                         childList: true,
                         subtree: true
                     });
-                }
-
-                if (!window.__tvKeyHandlerInstalled) {
-                    window.__tvKeyHandlerInstalled = true;
-                    document.addEventListener('keydown', function(e) {
-                        if (e.key === 'Enter' || e.keyCode === 13) {
-                            var active = document.activeElement;
-                            if (active && active !== document.body && active.tagName !== 'IFRAME') {
-                                e.preventDefault();
-                                active.click();
-                            }
-                        }
-                    }, true);
                 }
             })();
         """.trimIndent()
