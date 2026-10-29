@@ -106,6 +106,55 @@ class MainActivity : Activity() {
     private val scope = MainScope()
     private var updateJob: Job? = null
 
+    // Explicit reference to WebChromeClient implementation
+    private val customWebChromeClient = object : WebChromeClient() {
+        override fun onCreateWindow(
+            view: WebView?,
+            isDialog: Boolean,
+            isUserGesture: Boolean,
+            resultMsg: android.os.Message?
+        ): Boolean = false
+
+        override fun onPermissionRequest(request: PermissionRequest?) {
+            request?.deny()
+        }
+
+        override fun onGeolocationPermissionsShowPrompt(
+            origin: String?,
+            callback: GeolocationPermissions.Callback?
+        ) {
+            callback?.invoke(origin, false, false)
+        }
+
+        override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
+            if (customView != null) {
+                callback?.onCustomViewHidden()
+                return
+            }
+            customView = view
+            customViewCallback = callback
+            fullscreenContainer.addView(
+                view,
+                FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
+            )
+            fullscreenContainer.visibility = View.VISIBLE
+            contentColumn.visibility = View.GONE
+        }
+
+        override fun onHideCustomView() {
+            if (customView == null) return
+            fullscreenContainer.removeView(customView)
+            customView = null
+            fullscreenContainer.visibility = View.GONE
+            customViewCallback?.onCustomViewHidden()
+            customViewCallback = null
+            contentColumn.visibility = View.VISIBLE
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -121,7 +170,6 @@ class MainActivity : Activity() {
             )
         }
 
-        // Scrollable top bar so all Fire TV remote helper buttons fit on any screen size
         val topScroll = HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
             setBackgroundColor(Color.parseColor("#0F172A"))
@@ -160,7 +208,6 @@ class MainActivity : Activity() {
             }
         }
 
-        // Fire TV Remote Helpers: Cycle LINK 1 / LIVE 2 / LINK 3 even if the video iframe traps focus
         val prevLinkBtn = createNavButton("⏮ Link") {
             cycleStreamSource(-1)
         }
@@ -293,10 +340,6 @@ class MainActivity : Activity() {
         return ALLOWED_TOP_LEVEL_HOSTS.any { clean == it || clean.endsWith(".$it") }
     }
 
-    // ---------------------------------------------------------------------------------------------
-    // Hardened WebView Setup (Scope Item #3)
-    // ---------------------------------------------------------------------------------------------
-
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupWebView() {
         with(webView.settings) {
@@ -321,13 +364,9 @@ class MainActivity : Activity() {
         cookieManager.setAcceptCookie(true)
         cookieManager.setAcceptThirdPartyCookies(webView, false)
 
-        // Block all file downloads
         webView.setDownloadListener { _, _, _, _, _ -> }
 
-        // Notice: No addJavascriptInterface is ever registered on this WebView.
-
         webView.webViewClient = object : WebViewClient() {
-
             override fun shouldInterceptRequest(
                 view: WebView,
                 request: WebResourceRequest
@@ -350,11 +389,9 @@ class MainActivity : Activity() {
                 val fullUrl = uri.toString()
                 val scheme = uri.scheme?.lowercase() ?: ""
 
-                // Strictly HTTPS only
                 if (scheme != "https") return true
                 if (isBlockedUrl(fullUrl)) return true
 
-                // Top-level navigation is locked to the allowlisted host
                 if (request.isForMainFrame && !isAllowedTopLevelHost(uri.host)) {
                     return true
                 }
@@ -364,7 +401,6 @@ class MainActivity : Activity() {
 
             override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
                 super.onPageStarted(view, url, favicon)
-                // Do NOT inject scripts in onPageStarted (runs against old page). Only hide until commit.
                 webView.visibility = View.INVISIBLE
                 loadingSpinner.visibility = View.VISIBLE
             }
@@ -394,60 +430,8 @@ class MainActivity : Activity() {
             }
         }
 
-        webView.webChromeClient = object : WebChromeClient() {
-            override fun onCreateWindow(
-                view: WebView?,
-                isDialog: Boolean,
-                isUserGesture: Boolean,
-                resultMsg: android.os.Message?
-            ): Boolean = false
-
-            // Deny all camera/mic/media permission prompts
-            override fun onPermissionRequest(request: PermissionRequest?) {
-                request?.deny()
-            }
-
-            // Deny all geolocation prompts
-            override fun onGeolocationPermissionsShowPrompt(
-                origin: String?,
-                callback: GeolocationPermissions.Callback?
-            ) {
-                callback?.invoke(origin, false, false)
-            }
-
-            override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
-                if (customView != null) {
-                    callback?.onCustomViewHidden()
-                    return
-                }
-                customView = view
-                customViewCallback = callback
-                fullscreenContainer.addView(
-                    view,
-                    FrameLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.MATCH_PARENT
-                    )
-                )
-                fullscreenContainer.visibility = View.VISIBLE
-                contentColumn.visibility = View.GONE
-            }
-
-            override fun onHideCustomView() {
-                if (customView == null) return
-                fullscreenContainer.removeView(customView)
-                customView = null
-                fullscreenContainer.visibility = View.GONE
-                customViewCallback?.onCustomViewHidden()
-                customViewCallback = null
-                contentColumn.visibility = View.VISIBLE
-            }
-        }
+        webView.webChromeClient = customWebChromeClient
     }
-
-    // ---------------------------------------------------------------------------------------------
-    // Fire TV Remote Helpers (Switch Stream Links & Fullscreen from Top Bar)
-    // ---------------------------------------------------------------------------------------------
 
     private fun cycleStreamSource(direction: Int) {
         val js = """
@@ -482,7 +466,6 @@ class MainActivity : Activity() {
     private fun triggerVideoFullscreen() {
         val js = """
             (function() {
-                // Click the page's Full Screen button if present
                 var btns = Array.from(document.querySelectorAll('button, a, div, span'));
                 for (var i = 0; i < btns.length; i++) {
                     var t = (btns[i].innerText || '').trim().toUpperCase();
@@ -498,10 +481,6 @@ class MainActivity : Activity() {
         webView.evaluateJavascript(js, null)
     }
 
-    /**
-     * Removes right-side chat, ads, "Buy Plan", "LIVE CHANNELS", and makes all game cards and
-     * stream source buttons (LINK 1 / LIVE 2) D-pad navigable with a throttled MutationObserver.
-     */
     private fun injectCustomUiCleanup() {
         val js = """
             (function() {
@@ -511,7 +490,6 @@ class MainActivity : Activity() {
                     var style = document.createElement('style');
                     style.id = 'custom-tv-style';
                     style.innerHTML = `
-                        /* 1. Hide site headers, navbars, footers, buy-plan, premium, and share boxes */
                         header, nav, .navbar, .site-header, .header-main,
                         [class*="buy-plan"], [class*="buy_plan"], [class*="buyplan"],
                         [class*="premium"], [class*="share"], .social-share,
@@ -519,7 +497,6 @@ class MainActivity : Activity() {
                             display: none !important;
                         }
 
-                        /* 2. Remove Right-Side Chat Box, Chat Iframes, & Chat Sidebars completely */
                         #chat, .chat, [id*="chat-"], [id*="-chat"], [class*="chat-box"],
                         [class*="chat_box"], [class*="chatbox"], [class*="chat-container"],
                         [class*="chat-sidebar"], [class*="chat-panel"], [class*="chat-wrapper"],
@@ -533,7 +510,6 @@ class MainActivity : Activity() {
                             overflow: hidden !important;
                         }
 
-                        /* 3. Hide ad banners & AliExpress promos */
                         img[src*="aliexpress"], a[href*="aliexpress"],
                         [class*="banner"], [id*="banner"],
                         [class*="advert"], [id*="advert"],
@@ -545,7 +521,6 @@ class MainActivity : Activity() {
                             overflow: hidden !important;
                         }
 
-                        /* 4. High-visibility focus ring for Fire TV D-pad navigation */
                         a:focus, button:focus, [tabindex]:focus {
                             outline: 4px solid #38BDF8 !important;
                             outline-offset: 3px !important;
@@ -558,7 +533,6 @@ class MainActivity : Activity() {
                     (document.head || document.documentElement).appendChild(style);
                 }
 
-                // Enable Fire TV D-pad Center / Enter key to click focused elements
                 if (!window.__tvKeyHandlerInstalled) {
                     window.__tvKeyHandlerInstalled = true;
                     document.addEventListener('keydown', function(e) {
@@ -573,10 +547,9 @@ class MainActivity : Activity() {
                 }
 
                 function cleanDom() {
-                    // 1. Hide "Buy Plan", "Share", "Settings", "Premium" & Remove Chat panels by text/heading
                     document.querySelectorAll('a, button, span, div, aside, section').forEach(function(el) {
                         var clsId = ((el.className || '') + ' ' + (el.id || '')).toLowerCase();
-                        if (/\b(chat|chatbox|chat-room|livechat|right-sidebar)\b/.test(clsId)) {
+                        if (/\\b(chat|chatbox|chat-room|livechat|right-sidebar)\\b/.test(clsId)) {
                             if (!el.querySelector('video') && !el.innerText.includes('LINK 1')) {
                                 el.style.setProperty('display', 'none', 'important');
                                 return;
@@ -590,8 +563,7 @@ class MainActivity : Activity() {
                             btn.style.setProperty('display', 'none', 'important');
                         }
 
-                        // Make LINK 1 / LIVE 2 stream source tabs D-pad focusable & tagged for Prev/Next buttons
-                        if (/^(link|live|stream|feed|server|hd|sd)\s*\d*$/i.test(txt)) {
+                        if (/^(link|live|stream|feed|server|hd|sd)\\s*\\d*$/i.test(txt)) {
                             var clickTarget = el.closest('a, button, li') || el;
                             clickTarget.setAttribute('tabindex', '0');
                             clickTarget.setAttribute('role', 'button');
@@ -607,25 +579,21 @@ class MainActivity : Activity() {
                         }
                     });
 
-                    // 2. Prevent video iframes from trapping Fire TV D-pad focus so remote can navigate page freely
                     document.querySelectorAll('iframe').forEach(function(ifr) {
                         var src = (ifr.src || '').toLowerCase();
                         if (src.includes('chat') || src.includes('tlk.io') || src.includes('twitch') || src.includes('cbox')) {
                             ifr.remove();
                         } else {
-                            // Keep video iframe playable but prevent it from stealing D-pad focus trap
                             ifr.setAttribute('tabindex', '-1');
                         }
                     });
 
-                    // 3. Make game matchup cards and "FULL SCREEN" button focusable with Fire TV remote
                     document.querySelectorAll('a[href], button, [onclick]').forEach(function(item) {
                         if (item.offsetParent !== null && !item.hasAttribute('tabindex')) {
                             item.setAttribute('tabindex', '0');
                         }
                     });
 
-                    // 4. Hide ONLY "LIVE CHANNELS", its 2 channel logos, and bottom SEO text
                     document.querySelectorAll('h1, h2, h3, h4, h5, div, span, p').forEach(function(el) {
                         if (el.children.length > 2) return;
                         var txt = (el.innerText || '').trim().toUpperCase();
@@ -669,7 +637,6 @@ class MainActivity : Activity() {
 
                 cleanDom();
 
-                // Throttled MutationObserver (runs at most once every 400ms to keep Fire TV Stick fast)
                 if (!window.__tvCleanupObserver && document.documentElement) {
                     var throttleTimer = null;
                     window.__tvCleanupObserver = new MutationObserver(function() {
@@ -700,10 +667,6 @@ class MainActivity : Activity() {
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
 
-    // ---------------------------------------------------------------------------------------------
-    // Hardened Auto-Updater (Scope Item #2)
-    // ---------------------------------------------------------------------------------------------
-
     private fun startUpdateCheck() {
         if (updateJob?.isActive == true) return
 
@@ -729,7 +692,7 @@ class MainActivity : Activity() {
     private fun requestInstallPermission() {
         try {
             startActivity(
-                Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName"))
+                Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:\$packageName"))
             )
             toast("Enable 'Allow from this source', then tap Update again.")
         } catch (_: ActivityNotFoundException) {
@@ -741,19 +704,18 @@ class MainActivity : Activity() {
         setUpdateStatus("Checking...")
         val release = withContext(Dispatchers.IO) { fetchLatestRelease() }
 
-        // Skip download when latest release tag matches installed versionName
         val installedVersionName = installedPackageInfo(0).versionName ?: ""
         val latestVersionName = release.tag.removePrefix("v")
         if (latestVersionName.isNotEmpty() && latestVersionName == installedVersionName) {
             setUpdateStatus("✓ Up to date")
-            toast("Already on latest version ($installedVersionName).")
+            toast("Already on latest version (\$installedVersionName).")
             return
         }
 
         val apkUrl = release.apkUrl
         if (apkUrl.isNullOrEmpty() || !apkUrl.startsWith("https://")) {
             setUpdateStatus("No APK")
-            toast("Release '${release.tag}' has no HTTPS .apk asset attached.")
+            toast("Release '\${release.tag}' has no HTTPS .apk asset attached.")
             return
         }
 
@@ -761,7 +723,6 @@ class MainActivity : Activity() {
         val apk = withContext(Dispatchers.IO) { download(apkUrl) }
 
         setUpdateStatus("Verifying...")
-        // Every release publishes a .sha256 file, so a missing or unreadable checksum is a failure.
         val sha256Url = release.sha256Url
         val expectedSha256 = if (!sha256Url.isNullOrEmpty() && sha256Url.startsWith("https://")) {
             withContext(Dispatchers.IO) { fetchSha256Text(sha256Url) }
@@ -769,7 +730,7 @@ class MainActivity : Activity() {
         if (expectedSha256.isNullOrEmpty() || !Regex("^[0-9a-f]{64}$").matches(expectedSha256)) {
             apk.delete()
             setUpdateStatus("Rejected")
-            toast("Release '${release.tag}' has no valid SHA-256 checksum.")
+            toast("Release '\${release.tag}' has no valid SHA-256 checksum.")
             return
         }
 
@@ -796,10 +757,10 @@ class MainActivity : Activity() {
         try {
             val code = conn.responseCode
             if (code == 403 || code == 429) {
-                throw IOException("GitHub API rate limit reached (HTTP $code). Please wait a few minutes and try again.")
+                throw IOException("GitHub API rate limit reached (HTTP \$code). Please wait a few minutes and try again.")
             }
             if (code != 200) {
-                throw IOException("GitHub API returned HTTP $code")
+                throw IOException("GitHub API returned HTTP \$code")
             }
 
             val json = JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
@@ -857,9 +818,9 @@ class MainActivity : Activity() {
         try {
             val code = conn.responseCode
             if (code == 403 || code == 429) {
-                throw IOException("GitHub download rate limit reached (HTTP $code). Try again shortly.")
+                throw IOException("GitHub download rate limit reached (HTTP \$code). Try again shortly.")
             }
-            if (code !in 200..299) throw IOException("Download HTTP $code")
+            if (code !in 200..299) throw IOException("Download HTTP \$code")
             val target = File(cacheDir, "update.apk").apply { delete() }
             conn.inputStream.use { input ->
                 target.outputStream().use { output ->
@@ -902,10 +863,9 @@ class MainActivity : Activity() {
         val pm = packageManager
         val archive = pm.getPackageArchiveInfo(apk.path, PackageManager.GET_SIGNING_CERTIFICATES)
             ?: return "Downloaded file isn't a valid APK."
-        if (archive.packageName != packageName) return "Update is for a different package ($packageName)."
+        if (archive.packageName != packageName) return "Update is for a different package (\$packageName)."
 
         val installed = installedPackageInfo(PackageManager.GET_SIGNING_CERTIFICATES)
-        // Strict <= check: reject updates whose versionCode is equal or lower
         if (PackageInfoCompat.getLongVersionCode(archive) <= PackageInfoCompat.getLongVersionCode(installed)) {
             return "Update isn't newer than the installed version."
         }
@@ -985,13 +945,12 @@ class MainActivity : Activity() {
                 PackageInstaller.STATUS_SUCCESS -> {
                     setUpdateStatus("✓ Updated")
                     toast("Update installed! You can now disable 'Install unknown apps' in Settings.")
-                    // Scope Item #4: Prompt user to turn "Install unknown apps" back off after update
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                         try {
                             startActivity(
                                 Intent(
                                     Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                                    Uri.parse("package:$packageName")
+                                    Uri.parse("package:\$packageName")
                                 )
                             )
                         } catch (_: ActivityNotFoundException) {
@@ -1018,7 +977,7 @@ class MainActivity : Activity() {
                     } catch (e) {}
                 });
                 if (videos.length > 0) {
-                    var v = videos[0];
+                    var v = videos;
                     if (v.paused) v.play(); else v.pause();
                     return "Toggled video";
                 }
@@ -1068,7 +1027,7 @@ class MainActivity : Activity() {
             }
             KeyEvent.KEYCODE_BACK -> {
                 if (customView != null) {
-                    hideCustomView()
+                    customWebChromeClient.onHideCustomView()
                     return true
                 }
                 if (webView.canGoBack()) {
