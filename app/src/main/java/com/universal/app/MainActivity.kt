@@ -1051,7 +1051,52 @@ private fun toggleVideoPlayPause() {
             }
         }
     }
+}
+    private fun toggleVideoPlayPause() {
+        val js = """
+            (function() {
+                var videos = Array.from(document.querySelectorAll('video'));
+                document.querySelectorAll('iframe').forEach(function(f) {
+                    try {
+                        if (f.contentDocument) {
+                            videos = videos.concat(Array.from(f.contentDocument.querySelectorAll('video')));
+                        }
+                    } catch (e) {}
+                });
+                if (videos.length > 0) {
+                    var v = videos[0];
+                    if (v.paused) v.play(); else v.pause();
+                    return "Toggled video";
+                }
 
+                var playBtn = document.querySelector(
+                    '.play-wrapper, [data-playpause], .vjs-play-control, .jw-icon-playback, [aria-label*="Play"], [aria-label*="Pause"]'
+                );
+                if (playBtn) {
+                    playBtn.click();
+                    return "Clicked player control";
+                }
+
+                return "FALLBACK_TAP";
+            })();
+        """.trimIndent()
+
+        webView.evaluateJavascript(js) { result ->
+            if (result?.contains("FALLBACK_TAP") == true) {
+                val targetView = if (customView != null) fullscreenContainer else webView
+                val cx = targetView.width / 2f
+                val cy = targetView.height / 2f
+                val now = android.os.SystemClock.uptimeMillis()
+                val down = android.view.MotionEvent.obtain(now, now, android.view.MotionEvent.ACTION_DOWN, cx, cy, 0)
+                val up = android.view.MotionEvent.obtain(now, now + 50, android.view.MotionEvent.ACTION_UP, cx, cy, 0)
+                targetView.dispatchTouchEvent(down)
+                targetView.dispatchTouchEvent(up)
+                down.recycle()
+                up.recycle()
+            }
+        }
+    }
+    
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         when (keyCode) {
             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
@@ -1080,4 +1125,5 @@ private fun toggleVideoPlayPause() {
         }
         return super.onKeyDown(keyCode, event)
     }
+}
 }
