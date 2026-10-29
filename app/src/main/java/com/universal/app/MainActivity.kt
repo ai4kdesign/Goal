@@ -328,8 +328,6 @@ class MainActivity : Activity() {
         // Block all file downloads
         webView.setDownloadListener { _, _, _, _, _ -> }
 
-        // Notice: No addJavascriptInterface is ever registered on this WebView.
-
         webView.webViewClient = object : WebViewClient() {
 
             override fun shouldInterceptRequest(
@@ -368,7 +366,6 @@ class MainActivity : Activity() {
 
             override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
                 super.onPageStarted(view, url, favicon)
-                // Do NOT inject scripts in onPageStarted (runs against old page). Only hide until commit.
                 webView.visibility = View.INVISIBLE
                 loadingSpinner.visibility = View.VISIBLE
             }
@@ -486,7 +483,6 @@ class MainActivity : Activity() {
     private fun triggerVideoFullscreen() {
         val js = """
             (function() {
-                // Click the page's Full Screen button if present
                 var btns = Array.from(document.querySelectorAll('button, a, div, span'));
                 for (var i = 0; i < btns.length; i++) {
                     var t = (btns[i].innerText || '').trim().toUpperCase();
@@ -502,10 +498,6 @@ class MainActivity : Activity() {
         webView.evaluateJavascript(js, null)
     }
 
-    /**
-     * Removes right-side chat, ads, "Buy Plan", "LIVE CHANNELS", and makes all game cards and
-     * stream source buttons (Home / Away / LINK 1 / LIVE 2) D-pad navigable with a throttled MutationObserver.
-     */
     private fun injectCustomUiCleanup() {
         val js = """
             (function() {
@@ -515,7 +507,6 @@ class MainActivity : Activity() {
                     var style = document.createElement('style');
                     style.id = 'custom-tv-style';
                     style.innerHTML = `
-                        /* 1. Hide site headers, navbars, footers, buy-plan, premium, and share boxes */
                         header, nav, .navbar, .site-header, .header-main,
                         [class*="buy-plan"], [class*="buy_plan"], [class*="buyplan"],
                         [class*="premium"], [class*="share"], .social-share,
@@ -523,7 +514,6 @@ class MainActivity : Activity() {
                             display: none !important;
                         }
 
-                        /* 2. Remove Right-Side Chat Box, Chat Iframes, & Chat Sidebars completely */
                         #chat, .chat, [id*="chat-"], [id*="-chat"], [class*="chat-box"],
                         [class*="chat_box"], [class*="chatbox"], [class*="chat-container"],
                         [class*="chat-sidebar"], [class*="chat-panel"], [class*="chat-wrapper"],
@@ -537,7 +527,6 @@ class MainActivity : Activity() {
                             overflow: hidden !important;
                         }
 
-                        /* 3. Hide ad banners & AliExpress promos */
                         img[src*="aliexpress"], a[href*="aliexpress"],
                         [class*="banner"], [id*="banner"],
                         [class*="advert"], [id*="advert"],
@@ -549,7 +538,6 @@ class MainActivity : Activity() {
                             overflow: hidden !important;
                         }
 
-                        /* 4. High-visibility focus ring for Fire TV D-pad navigation */
                         a:focus, button:focus, [tabindex]:focus {
                             outline: 4px solid #38BDF8 !important;
                             outline-offset: 3px !important;
@@ -562,7 +550,6 @@ class MainActivity : Activity() {
                     (document.head || document.documentElement).appendChild(style);
                 }
 
-                // Enable Fire TV D-pad Center / Enter key to click focused elements
                 if (!window.__tvKeyHandlerInstalled) {
                     window.__tvKeyHandlerInstalled = true;
                     document.addEventListener('keydown', function(e) {
@@ -577,7 +564,6 @@ class MainActivity : Activity() {
                 }
 
                 function cleanDom() {
-                    // 1. Hide "Buy Plan", "Share", "Settings", "Premium" & Remove Chat panels by text/heading
                     document.querySelectorAll('a, button, span, div, aside, section').forEach(function(el) {
                         var clsId = ((el.className || '') + ' ' + (el.id || '')).toLowerCase();
                         if (/\b(chat|chatbox|chat-room|livechat|right-sidebar)\b/.test(clsId)) {
@@ -594,7 +580,6 @@ class MainActivity : Activity() {
                             btn.style.setProperty('display', 'none', 'important');
                         }
 
-                        // Make Home / Away / LINK 1 / LIVE 2 stream source tabs D-pad focusable & tagged for Prev/Next buttons
                         if (/^(link|live|stream|feed|server|hd|sd|home|away|fr|french|main|alt)\s*\d*$/i.test(txt)) {
                             var clickTarget = el.closest('a, button, li') || el;
                             clickTarget.setAttribute('tabindex', '0');
@@ -611,25 +596,21 @@ class MainActivity : Activity() {
                         }
                     });
 
-                    // 2. Prevent video iframes from trapping Fire TV D-pad focus so remote can navigate page freely
                     document.querySelectorAll('iframe').forEach(function(ifr) {
                         var src = (ifr.src || '').toLowerCase();
                         if (src.includes('chat') || src.includes('tlk.io') || src.includes('twitch') || src.includes('cbox')) {
                             ifr.remove();
                         } else {
-                            // Keep video iframe playable but prevent it from stealing D-pad focus trap
                             ifr.setAttribute('tabindex', '-1');
                         }
                     });
 
-                    // 3. Make game matchup cards and "FULL SCREEN" button focusable with Fire TV remote
                     document.querySelectorAll('a[href], button, [onclick]').forEach(function(item) {
                         if (item.offsetParent !== null && !item.hasAttribute('tabindex')) {
                             item.setAttribute('tabindex', '0');
                         }
                     });
 
-                    // 4. Hide ONLY "LIVE CHANNELS", its 2 channel logos, and bottom SEO text
                     document.querySelectorAll('h1, h2, h3, h4, h5, div, span, p').forEach(function(el) {
                         if (el.children.length > 2) return;
                         var txt = (el.innerText || '').trim().toUpperCase();
@@ -673,7 +654,6 @@ class MainActivity : Activity() {
 
                 cleanDom();
 
-                // Throttled MutationObserver (runs at most once every 400ms to keep Fire TV Stick fast)
                 if (!window.__tvCleanupObserver && document.documentElement) {
                     var throttleTimer = null;
                     window.__tvCleanupObserver = new MutationObserver(function() {
@@ -705,7 +685,7 @@ class MainActivity : Activity() {
     }
 
     // ---------------------------------------------------------------------------------------------
-    // Hardened Auto-Updater (Scope Item #2)
+    // Hardened Auto-Updater
     // ---------------------------------------------------------------------------------------------
 
     private fun startUpdateCheck() {
@@ -745,7 +725,6 @@ class MainActivity : Activity() {
         setUpdateStatus("Checking...")
         val release = withContext(Dispatchers.IO) { fetchLatestRelease() }
 
-        // Skip download when latest release tag matches installed versionName
         val installedVersionName = installedPackageInfo(0).versionName ?: ""
         val latestVersionName = release.tag.removePrefix("v")
         if (latestVersionName.isNotEmpty() && latestVersionName == installedVersionName) {
@@ -765,7 +744,6 @@ class MainActivity : Activity() {
         val apk = withContext(Dispatchers.IO) { download(apkUrl) }
 
         setUpdateStatus("Verifying...")
-        // Every release publishes a .sha256 file, so a missing or unreadable checksum is a failure.
         val sha256Url = release.sha256Url
         val expectedSha256 = if (!sha256Url.isNullOrEmpty() && sha256Url.startsWith("https://")) {
             withContext(Dispatchers.IO) { fetchSha256Text(sha256Url) }
@@ -839,7 +817,7 @@ class MainActivity : Activity() {
             if (conn.responseCode in 200..299) {
                 conn.inputStream.bufferedReader().use { it.readText() }
                     .trim()
-                    .split(Regex("\\s+"))
+                    .split(Regex("\s+"))
                     .firstOrNull()
                     ?.lowercase()
             } else null
@@ -909,7 +887,6 @@ class MainActivity : Activity() {
         if (archive.packageName != packageName) return "Update is for a different package ($packageName)."
 
         val installed = installedPackageInfo(PackageManager.GET_SIGNING_CERTIFICATES)
-        // Strict <= check: reject updates whose versionCode is equal or lower
         if (PackageInfoCompat.getLongVersionCode(archive) <= PackageInfoCompat.getLongVersionCode(installed)) {
             return "Update isn't newer than the installed version."
         }
@@ -989,7 +966,6 @@ class MainActivity : Activity() {
                 PackageInstaller.STATUS_SUCCESS -> {
                     setUpdateStatus("✓ Updated")
                     toast("Update installed! You can now disable 'Install unknown apps' in Settings.")
-                    // Scope Item #4: Prompt user to turn "Install unknown apps" back off after update
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                         try {
                             startActivity(
@@ -1062,13 +1038,6 @@ class MainActivity : Activity() {
             KeyEvent.KEYCODE_MEDIA_PAUSE -> {
                 toggleVideoPlayPause()
                 return true
-            }
-            KeyEvent.KEYCODE_DPAD_CENTER,
-            KeyEvent.KEYCODE_ENTER -> {
-                if (customView != null) {
-                    toggleVideoPlayPause()
-                    return true
-                }
             }
             KeyEvent.KEYCODE_BACK -> {
                 if (customView != null) {
