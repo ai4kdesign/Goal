@@ -429,35 +429,36 @@ class MainActivity : Activity() {
     private fun cycleStreamSource(direction: Int) {
         val js = """
             (function() {
-                var gameCards = Array.from(document.querySelectorAll('div, a, button')).filter(function(el) {
-                    var hasTeamLogo = el.querySelector('img');
+                var streamButtons = Array.from(document.querySelectorAll('span, div, a, button')).filter(function(el) {
+                    var txt = (el.innerText || '').trim().toLowerCase();
                     var rect = el.getBoundingClientRect();
-                    return hasTeamLogo && rect.top > 120 && rect.top < 380 && rect.width > 50;
+                    return (txt === 'away' || txt === 'home') && rect.top > 100 && rect.top < 450;
                 });
 
-                if (gameCards.length === 0) {
-                    gameCards = Array.from(document.querySelectorAll('img')).filter(function(img) {
-                        var rect = img.getBoundingClientRect();
-                        return rect.top > 120 && rect.top < 380 && rect.width >= 30 && rect.width <= 80;
+                if (streamButtons.length === 0) {
+                    streamButtons = Array.from(document.querySelectorAll('div')).filter(function(div) {
+                        var rect = div.getBoundingClientRect();
+                        return rect.top > 120 && rect.top < 350 && div.querySelector('img') && div.children.length <= 3;
                     });
                 }
 
-                if (gameCards.length === 0) return "No games found";
+                if (streamButtons.length === 0) return "No game streams found";
 
                 var currentIdx = window.__tvGameIdx !== undefined ? window.__tvGameIdx : 0;
                 var nextIdx = currentIdx + ($direction);
-                if (nextIdx < 0) nextIdx = gameCards.length - 1;
-                if (nextIdx >= gameCards.length) nextIdx = 0;
+                if (nextIdx < 0) nextIdx = streamButtons.length - 1;
+                if (nextIdx >= streamButtons.length) nextIdx = 0;
                 window.__tvGameIdx = nextIdx;
 
-                var target = gameCards[nextIdx];
+                var target = streamButtons[nextIdx];
                 target.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
                 
+                target.click();
                 ['mousedown', 'mouseup', 'click'].forEach(function(type) {
                     target.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
                 });
                 
-                return "Game " + (nextIdx + 1) + " of " + gameCards.length;
+                return "Stream " + (nextIdx + 1) + " of " + streamButtons.length;
             })();
         """.trimIndent()
         webView.evaluateJavascript(js) { result ->
@@ -518,10 +519,12 @@ class MainActivity : Activity() {
                 if (!window.__tvTouchHandlerInstalled) {
                     window.__tvTouchHandlerInstalled = true;
                     document.addEventListener('click', function(e) {
-                        var target = e.target.closest('img, div, a');
+                        var target = e.target.closest('span, div, a, img');
                         if (target) {
                             var rect = target.getBoundingClientRect();
-                            if (rect.top > 120 && rect.top < 380) {
+                            var txt = (target.innerText || '').trim().toLowerCase();
+                            if ((rect.top > 100 && rect.top < 380) && (txt === 'away' || txt === 'home' || target.tagName === 'IMG' || target.tagName === 'A')) {
+                                target.click();
                                 ['mousedown', 'mouseup', 'click'].forEach(function(type) {
                                     target.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
                                 });
@@ -738,12 +741,12 @@ class MainActivity : Activity() {
                     return "Clicked player control";
                 }
 
-                return "FALLBACK_TAP";
+                return "FALLBACK_TAG";
             })();
         """.trimIndent()
 
         webView.evaluateJavascript(js) { result ->
-            if (result?.contains("FALLBACK_TAP") == true) {
+            if (result?.contains("FALLBACK_TAG") == true) {
                 val targetView = if (customView != null) fullscreenContainer else webView
                 val cx = targetView.width / 2f
                 val cy = targetView.height / 2f
