@@ -429,28 +429,22 @@ class MainActivity : Activity() {
     private fun cycleStreamSource(direction: Int) {
         val js = """
             (function() {
-                var streamButtons = Array.from(document.querySelectorAll('span, div, a, button')).filter(function(el) {
-                    var txt = (el.innerText || '').trim().toLowerCase();
+                var gameButtons = Array.from(document.querySelectorAll('img, button, a, div')).filter(function(el) {
                     var rect = el.getBoundingClientRect();
-                    return (txt === 'away' || txt === 'home') && rect.top > 100 && rect.top < 450;
+                    var isScheduleArea = rect.top > 120 && rect.top < 420;
+                    var isTeamItem = el.tagName === 'IMG' || el.classList.contains('team') || el.getAttribute('role') === 'button' || (el.tagName === 'DIV' && el.querySelector('img') && el.children.length <= 2);
+                    return isScheduleArea && isTeamItem && rect.width > 20 && rect.width < 150;
                 });
 
-                if (streamButtons.length === 0) {
-                    streamButtons = Array.from(document.querySelectorAll('div')).filter(function(div) {
-                        var rect = div.getBoundingClientRect();
-                        return rect.top > 120 && rect.top < 350 && div.querySelector('img') && div.children.length <= 3;
-                    });
-                }
-
-                if (streamButtons.length === 0) return "No game streams found";
+                if (gameButtons.length === 0) return "No game streams found";
 
                 var currentIdx = window.__tvGameIdx !== undefined ? window.__tvGameIdx : 0;
                 var nextIdx = currentIdx + ($direction);
-                if (nextIdx < 0) nextIdx = streamButtons.length - 1;
-                if (nextIdx >= streamButtons.length) nextIdx = 0;
+                if (nextIdx < 0) nextIdx = gameButtons.length - 1;
+                if (nextIdx >= gameButtons.length) nextIdx = 0;
                 window.__tvGameIdx = nextIdx;
 
-                var target = streamButtons[nextIdx];
+                var target = gameButtons[nextIdx];
                 target.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
                 
                 target.click();
@@ -458,7 +452,7 @@ class MainActivity : Activity() {
                     target.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
                 });
                 
-                return "Stream " + (nextIdx + 1) + " of " + streamButtons.length;
+                return "Game Feed " + (nextIdx + 1) + " of " + gameButtons.length;
             })();
         """.trimIndent()
         webView.evaluateJavascript(js) { result ->
@@ -519,11 +513,10 @@ class MainActivity : Activity() {
                 if (!window.__tvTouchHandlerInstalled) {
                     window.__tvTouchHandlerInstalled = true;
                     document.addEventListener('click', function(e) {
-                        var target = e.target.closest('span, div, a, img');
+                        var target = e.target.closest('img, div, a, button');
                         if (target) {
                             var rect = target.getBoundingClientRect();
-                            var txt = (target.innerText || '').trim().toLowerCase();
-                            if ((rect.top > 100 && rect.top < 380) && (txt === 'away' || txt === 'home' || target.tagName === 'IMG' || target.tagName === 'A')) {
+                            if (rect.top > 120 && rect.top < 420 && (target.tagName === 'IMG' || target.tagName === 'BUTTON' || target.tagName === 'A')) {
                                 target.click();
                                 ['mousedown', 'mouseup', 'click'].forEach(function(type) {
                                     target.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
