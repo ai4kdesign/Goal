@@ -429,30 +429,38 @@ class MainActivity : Activity() {
     private fun cycleStreamSource(direction: Int) {
         val js = """
             (function() {
-                var gameButtons = Array.from(document.querySelectorAll('img, button, a, div')).filter(function(el) {
+                var gameCards = Array.from(document.querySelectorAll('.matchup, .game-item, [class*="matchup"], [class*="game"]')).filter(function(el) {
                     var rect = el.getBoundingClientRect();
-                    var isScheduleArea = rect.top > 120 && rect.top < 420;
-                    var isTeamItem = el.tagName === 'IMG' || el.classList.contains('team') || el.getAttribute('role') === 'button' || (el.tagName === 'DIV' && el.querySelector('img') && el.children.length <= 2);
-                    return isScheduleArea && isTeamItem && rect.width > 20 && rect.width < 150;
+                    return rect.top > 100 && rect.top < 450 && rect.width > 80;
                 });
 
-                if (gameButtons.length === 0) return "No game streams found";
+                if (gameCards.length === 0) {
+                    gameCards = Array.from(document.querySelectorAll('div')).filter(function(div) {
+                        var rect = div.getBoundingClientRect();
+                        return rect.top > 120 && rect.top < 380 && div.querySelector('img') && div.children.length >= 2;
+                    });
+                }
+
+                if (gameCards.length === 0) return "No games found";
 
                 var currentIdx = window.__tvGameIdx !== undefined ? window.__tvGameIdx : 0;
                 var nextIdx = currentIdx + ($direction);
-                if (nextIdx < 0) nextIdx = gameButtons.length - 1;
-                if (nextIdx >= gameButtons.length) nextIdx = 0;
+                if (nextIdx < 0) nextIdx = gameCards.length - 1;
+                if (nextIdx >= gameCards.length) nextIdx = 0;
                 window.__tvGameIdx = nextIdx;
 
-                var target = gameButtons[nextIdx];
+                var target = gameCards[nextIdx];
                 target.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
                 
                 target.click();
+                var innerClickable = target.querySelector('a, button, img, div');
+                if (innerClickable) innerClickable.click();
+
                 ['mousedown', 'mouseup', 'click'].forEach(function(type) {
                     target.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
                 });
                 
-                return "Game Feed " + (nextIdx + 1) + " of " + gameButtons.length;
+                return "Game " + (nextIdx + 1) + " of " + gameCards.length;
             })();
         """.trimIndent()
         webView.evaluateJavascript(js) { result ->
@@ -510,20 +518,21 @@ class MainActivity : Activity() {
                     (document.head || document.documentElement).appendChild(style);
                 }
 
+                // Mobile touch & remote click handler for Vue.js reactivity
                 if (!window.__tvTouchHandlerInstalled) {
                     window.__tvTouchHandlerInstalled = true;
-                    document.addEventListener('click', function(e) {
-                        var target = e.target.closest('img, div, a, button');
+                    document.addEventListener('touchend', function(e) {
+                        var target = e.target.closest('.matchup, .game-item, [class*="matchup"], [class*="game"], img, div, a, button');
                         if (target) {
                             var rect = target.getBoundingClientRect();
-                            if (rect.top > 120 && rect.top < 420 && (target.tagName === 'IMG' || target.tagName === 'BUTTON' || target.tagName === 'A')) {
+                            if (rect.top > 100 && rect.top < 450) {
                                 target.click();
-                                ['mousedown', 'mouseup', 'click'].forEach(function(type) {
+                                ['touchstart', 'touchend', 'mousedown', 'mouseup', 'click'].forEach(function(type) {
                                     target.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
                                 });
                             }
                         }
-                    }, true);
+                    }, false);
                 }
 
                 function hideBettingWidgets() {
