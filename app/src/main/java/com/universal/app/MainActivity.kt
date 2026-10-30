@@ -73,6 +73,13 @@ class MainActivity : Activity() {
         private const val ACTION_INSTALL_STATUS = "com.universal.app.INSTALL_STATUS"
         private const val MAX_APK_BYTES = 200L * 1024 * 1024
 
+        private val ALLOWED_TOP_LEVEL_HOSTS = setOf(
+            "nhl24all.ir",
+            "www.nhl24all.ir",
+            "nhlstreams.io",
+            "www.nhlstreams.io"
+        )
+
         private val AD_AND_CHAT_KEYWORDS = listOf(
             "doubleclick", "googlesyndication", "adservice", "popads", "popcash",
             "propellerads", "adsterra", "exoclick", "juicyads", "clickadu",
@@ -422,10 +429,19 @@ class MainActivity : Activity() {
     private fun cycleStreamSource(direction: Int) {
         val js = """
             (function() {
-                var gameCards = Array.from(document.querySelectorAll('img')).filter(function(img) {
-                    var rect = img.getBoundingClientRect();
-                    return rect.width >= 20 && rect.width <= 90 && rect.top > 120 && rect.top < 650;
+                var gameCards = Array.from(document.querySelectorAll('div, a, button')).filter(function(el) {
+                    var hasTeamLogo = el.querySelector('img');
+                    var rect = el.getBoundingClientRect();
+                    return hasTeamLogo && rect.top > 120 && rect.top < 380 && rect.width > 50;
                 });
+
+                if (gameCards.length === 0) {
+                    gameCards = Array.from(document.querySelectorAll('img')).filter(function(img) {
+                        var rect = img.getBoundingClientRect();
+                        return rect.top > 120 && rect.top < 380 && rect.width >= 30 && rect.width <= 80;
+                    });
+                }
+
                 if (gameCards.length === 0) return "No games found";
 
                 var currentIdx = window.__tvGameIdx !== undefined ? window.__tvGameIdx : 0;
@@ -440,11 +456,7 @@ class MainActivity : Activity() {
                 ['mousedown', 'mouseup', 'click'].forEach(function(type) {
                     target.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
                 });
-                if (target.parentElement) {
-                    ['mousedown', 'mouseup', 'click'].forEach(function(type) {
-                        target.parentElement.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
-                    });
-                }
+                
                 return "Game " + (nextIdx + 1) + " of " + gameCards.length;
             })();
         """.trimIndent()
@@ -503,14 +515,13 @@ class MainActivity : Activity() {
                     (document.head || document.documentElement).appendChild(style);
                 }
 
-                // Force direct click handling on any game card / team logo so touching them instantly opens the stream
                 if (!window.__tvTouchHandlerInstalled) {
                     window.__tvTouchHandlerInstalled = true;
                     document.addEventListener('click', function(e) {
-                        var target = e.target.closest('img, div');
+                        var target = e.target.closest('img, div, a');
                         if (target) {
                             var rect = target.getBoundingClientRect();
-                            if (rect.top > 120 && rect.top < 650 && rect.width < 120) {
+                            if (rect.top > 120 && rect.top < 380) {
                                 ['mousedown', 'mouseup', 'click'].forEach(function(type) {
                                     target.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
                                 });
