@@ -149,11 +149,11 @@ class MainActivity : Activity() {
             toast("Scrolled to top")
         }
 
-        val prevLinkBtn = createNavButton("⏮ Feed") {
+        val prevLinkBtn = createNavButton("⏮ Prev Game") {
             cycleStreamSource(-1)
         }
 
-        val nextLinkBtn = createNavButton("⏭ Feed") {
+        val nextLinkBtn = createNavButton("⏭ Next Game") {
             cycleStreamSource(1)
         }
 
@@ -329,7 +329,6 @@ class MainActivity : Activity() {
                 if (scheme != "https" && scheme != "http") return true
                 if (isBlockedUrl(fullUrl)) return true
 
-                // Block external ad popups while allowing nhl24all / nhl66 domains
                 if (request.isForMainFrame) {
                     val host = uri.host?.lowercase() ?: ""
                     if (!host.contains("nhl24all") && !host.contains("nhl66") && !host.contains("nhlstreams")) {
@@ -420,42 +419,33 @@ class MainActivity : Activity() {
         }
     }
 
-    /**
-     * Cycles through every clickable team feed button inside the red "Today" game boxes
-     * so you can switch games/feeds directly using the top bar ⏮ Feed / ⏭ Feed buttons!
-     */
     private fun cycleStreamSource(direction: Int) {
         val js = """
             (function() {
-                // Find all team logo buttons inside the horizontal game schedule bar
-                var feedBtns = Array.from(document.querySelectorAll('[data-tv-feed-btn="1"]'));
-                if (feedBtns.length === 0) {
-                    // Fallback: grab all team logo images inside the schedule strip
-                    feedBtns = Array.from(document.querySelectorAll('img')).filter(function(img) {
-                        var rect = img.getBoundingClientRect();
-                        return rect.width >= 24 && rect.width <= 90 && rect.top > 150 && rect.top < 700;
-                    });
-                }
-                if (feedBtns.length === 0) return "No feeds found";
+                var gameCards = Array.from(document.querySelectorAll('img')).filter(function(img) {
+                    var rect = img.getBoundingClientRect();
+                    return rect.width >= 20 && rect.width <= 90 && rect.top > 120 && rect.top < 650;
+                });
+                if (gameCards.length === 0) return "No games found";
 
-                var currentIdx = window.__tvCurrentFeedIdx !== undefined ? window.__tvCurrentFeedIdx : 0;
+                var currentIdx = window.__tvGameIdx !== undefined ? window.__tvGameIdx : 0;
                 var nextIdx = currentIdx + ($direction);
-                if (nextIdx < 0) nextIdx = feedBtns.length - 1;
-                if (nextIdx >= feedBtns.length) nextIdx = 0;
-                window.__tvCurrentFeedIdx = nextIdx;
+                if (nextIdx < 0) nextIdx = gameCards.length - 1;
+                if (nextIdx >= gameCards.length) nextIdx = 0;
+                window.__tvGameIdx = nextIdx;
 
-                var target = feedBtns[nextIdx];
+                var target = gameCards[nextIdx];
                 target.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
                 
-                // Dispatch full mouse/touch/click sequence for Vue.js reactivity
-                ['mousedown', 'mouseup', 'click'].forEach(function(evtType) {
-                    var evt = new MouseEvent(evtType, { bubbles: true, cancelable: true, view: window });
-                    target.dispatchEvent(evt);
+                ['mousedown', 'mouseup', 'click'].forEach(function(type) {
+                    target.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
                 });
                 if (target.parentElement) {
-                    target.parentElement.click();
+                    ['mousedown', 'mouseup', 'click'].forEach(function(type) {
+                        target.parentElement.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+                    });
                 }
-                return "Feed #" + (nextIdx + 1) + " of " + feedBtns.length;
+                return "Game " + (nextIdx + 1) + " of " + gameCards.length;
             })();
         """.trimIndent()
         webView.evaluateJavascript(js) { result ->
@@ -497,7 +487,6 @@ class MainActivity : Activity() {
                         header, nav, .navbar, .site-header, .header-main, footer { 
                             display: none !important; 
                         }
-                        /* Hide right-side chat drawer & chat iframes without touching game schedule */
                         #chat, .chat, [id*="chat-"], [id*="-chat"], [class*="chat-box"],
                         [class*="chat_box"], [class*="chatbox"], [class*="chat-container"],
                         [class*="chat-sidebar"], [class*="chat-panel"], [class*="chat-wrapper"],
@@ -510,53 +499,40 @@ class MainActivity : Activity() {
                             max-width: 0 !important;
                             overflow: hidden !important;
                         }
-                        /* Highlight focused team logo or game box on Fire TV remote */
-                        [data-tv-feed-btn="1"]:focus, .tv-focusable:focus {
-                            outline: 4px solid #38BDF8 !important;
-                            outline-offset: 2px !important;
-                            transform: scale(1.08);
-                        }
                     `;
                     (document.head || document.documentElement).appendChild(style);
                 }
 
-                function enhanceScheduleAndHideBetting() {
-                    // 1. Tag every team logo box inside the game schedule so both touch & Fire TV remote can click them
-                    document.querySelectorAll('img').forEach(function(img) {
-                        var rect = img.getBoundingClientRect();
-                        if (rect.width >= 24 && rect.width <= 90) {
-                            var clickBox = img.parentElement || img;
-                            clickBox.setAttribute('data-tv-feed-btn', '1');
-                            clickBox.setAttribute('tabindex', '0');
-                            clickBox.classList.add('tv-focusable');
-                            clickBox.style.cursor = 'pointer';
+                // Force direct click handling on any game card / team logo so touching them instantly opens the stream
+                if (!window.__tvTouchHandlerInstalled) {
+                    window.__tvTouchHandlerInstalled = true;
+                    document.addEventListener('click', function(e) {
+                        var target = e.target.closest('img, div');
+                        if (target) {
+                            var rect = target.getBoundingClientRect();
+                            if (rect.top > 120 && rect.top < 650 && rect.width < 120) {
+                                ['mousedown', 'mouseup', 'click'].forEach(function(type) {
+                                    target.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+                                });
+                            }
                         }
-                    });
+                    }, true);
+                }
 
-                    // 2. Safely hide ONLY the bottom betting/prediction cards without touching the schedule container
+                function hideBettingWidgets() {
                     document.querySelectorAll('div, section, aside').forEach(function(el) {
-                        // Never touch any element that contains the video player or the horizontal game list!
                         if (el.querySelector('video') || el.querySelector('iframe')) return;
                         var txt = (el.innerText || '').trim();
-                        if (txt.includes('Oct ') || txt.includes('Yesterday') || txt.includes('Today') || txt.includes('Tomorrow')) {
-                            // If this container holds the top game strip, only hide specific betting child cards
-                            if (!txt.includes('Odd:')) return;
-                        }
-
-                        // Hide the small "Your Balance $1,000.00" box
-                        if (txt.startsWith('Your Balance') && txt.includes('Max amount for each pick') && el.children.length <= 6) {
+                        if (txt.startsWith('Your Balance') && el.children.length <= 6) {
                             el.style.setProperty('display', 'none', 'important');
-                            return;
                         }
-
-                        // Hide individual "Odd: 1.780" betting rows at the bottom
-                        if ((txt.includes('Odd:') || txt.includes('Betting On:') || txt.includes('Prediction Competition')) && el.children.length <= 8) {
+                        if ((txt.includes('Odd:') || txt.includes('Prediction Competition')) && el.children.length <= 8) {
                             el.style.setProperty('display', 'none', 'important');
                         }
                     });
                 }
 
-                enhanceScheduleAndHideBetting();
+                hideBettingWidgets();
 
                 if (!window.__tvCleanupObserver && document.documentElement) {
                     var throttleTimer = null;
@@ -564,7 +540,7 @@ class MainActivity : Activity() {
                         if (throttleTimer) return;
                         throttleTimer = setTimeout(function() {
                             throttleTimer = null;
-                            enhanceScheduleAndHideBetting();
+                            hideBettingWidgets();
                         }, 500);
                     });
                     window.__tvCleanupObserver.observe(document.documentElement, {
